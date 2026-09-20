@@ -20,6 +20,7 @@ COMMANDS = (
         "examples",
     ),
     (sys.executable, "-m", "mypy"),
+    (sys.executable, "-m", "mypy", "--platform", "linux"),
 )
 
 

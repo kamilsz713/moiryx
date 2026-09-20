@@ -8,6 +8,8 @@ i ograniczeń pierwszej wersji alpha.
 - Testy AC1–AC11, pełną suite offline, lint i mypy.
 - Wheel i sdist: metadane MIT, changelog, brak lokalnych sekretów oraz instalację
   wheel w czystym Pythonie 3.12.
+- Macierz GitHub CI na Pythonie 3.11 i 3.12 oraz job budowy artefaktów
+  przeszły po pierwszym pushu do repozytorium.
 - Mały smoke test tekstowy tego samego agenta na lokalnym llama-swap (Bonsai)
   i OpenRouter (`inclusionai/ling-3.0-flash-vl:free`). Testy function calling
   i JSON schema wykonano lokalnie. Konfiguracja użyta do live testów pozostaje
@@ -15,7 +17,6 @@ i ograniczeń pierwszej wersji alpha.
 
 ## Otwarte kroki
 
-- Uruchomić macierz CI na GitHubie (Python 3.11 i 3.12) po pierwszym pushu.
 - Potwierdzić dostępność nazwy i skonfigurować publikację na PyPI. Samo
   przygotowanie artefaktów nie jest zgodą na publikację.
 
