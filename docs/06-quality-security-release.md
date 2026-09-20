@@ -46,7 +46,21 @@ with slashes, process cancellation, and secret redaction.
 
 ## Alpha release gate
 
-Before publishing `0.1.0a1` to PyPI, verify the package name, install and
-audit both artifacts, confirm docs and the changelog, and obtain the owner's
-explicit publication decision. A successful GitHub push or CI run does not
-publish the package. API stability beyond this alpha is not promised.
+The `publish.yml` workflow builds and checks wheel and sdist after a GitHub
+release is published. It rejects a tag that does not match the version in
+`pyproject.toml`, then publishes through PyPI Trusted Publishing. Only the
+publish job receives OIDC permission. It uses the GitHub `pypi` environment
+as its manual approval gate; create that environment with a required reviewer
+before publishing a release.
+
+For the first release, create a pending Trusted Publisher in PyPI with these
+exact fields: project `moiryx`, GitHub owner `kamilsz713`, repository `moiryx`,
+workflow `publish.yml`, and environment `pypi`. A pending publisher does not
+reserve the project name. After the environment and publisher are configured,
+publish the GitHub release with tag `v0.1.0a1` from the verified `main` commit,
+mark it as a pre-release, approve the `pypi` environment deployment, and
+verify the PyPI project page and a clean installation. Do not create the
+release before both account-side settings are ready. No PyPI API token is
+needed or stored in GitHub.
+
+API stability beyond this alpha is not promised.

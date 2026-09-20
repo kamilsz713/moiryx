@@ -5,7 +5,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
 import yaml
+from scripts.check_release_tag import check_release_tag
 
 from moiryx.agent_spec import load_agent_spec
 
@@ -100,3 +102,27 @@ def test_sdist_manifest_includes_docs_and_examples() -> None:
 
     assert "recursive-include docs *.md" in manifest
     assert "recursive-include examples *.md *.py *.yaml" in manifest
+
+
+def test_publish_workflow_uses_release_tag_and_trusted_publisher() -> None:
+    workflow_path = PROJECT_ROOT / ".github" / "workflows" / "publish.yml"
+    workflow = yaml.safe_load(workflow_path.read_text("utf-8"))
+
+    assert workflow["on"] == {"release": {"types": ["published"]}}
+    assert workflow["permissions"] == {"contents": "read"}
+    build = workflow["jobs"]["build"]
+    publish = workflow["jobs"]["publish"]
+    assert any(
+        step.get("run") == "python scripts/check_release_tag.py"
+        for step in build["steps"]
+    )
+    assert publish["needs"] == "build"
+    assert publish["environment"]["name"] == "pypi"
+    assert publish["permissions"] == {"id-token": "write"}
+    assert publish["steps"][-1]["uses"] == "pypa/gh-action-pypi-publish@release/v1"
+
+
+def test_release_tag_must_match_package_version() -> None:
+    check_release_tag("v0.1.0a1")
+    with pytest.raises(ValueError, match=r"must be 'v0\.1\.0a1'"):
+        check_release_tag("v0.1.0")

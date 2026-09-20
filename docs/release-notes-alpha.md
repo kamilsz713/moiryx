@@ -17,8 +17,11 @@ verification and remaining release work, not a publication announcement.
 
 ## Remaining
 
-- Confirm the distribution name and configure PyPI publishing. Building an
-  artifact or pushing GitHub commits does not authorize publication.
+- Create the GitHub `pypi` environment with a required reviewer and configure
+  the matching pending PyPI Trusted Publisher. The `moiryx` project page is
+  currently absent, but the name is not reserved until the first publication.
+- Publish the `v0.1.0a1` GitHub pre-release, approve the environment, and verify
+  the uploaded distributions and clean installation from PyPI.
 
 `shell` is not a sandbox. Local function-calling and JSON-schema behavior
 depends on the model and chat template; one successful smoke test is not a
