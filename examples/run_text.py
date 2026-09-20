@@ -8,7 +8,7 @@ from moiryx import Agent
 async def main() -> None:
     """Ask the configured local model one question."""
     agent = Agent("examples/agents/chat.md")
-    answer = await agent("Wyjaśnij różnicę między procesem i wątkiem.")
+    answer = await agent("What is the difference between a process and a thread?")
     print(answer)
 
 

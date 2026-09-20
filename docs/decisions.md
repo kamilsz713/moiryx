@@ -1,86 +1,47 @@
-# Decyzje architektoniczne
+# Architecture decisions
 
-Poniższe decyzje mają status `Accepted for v0.1`. Ich zmiana wymaga aktualizacji
-pełnej specyfikacji, konsekwencji w backlogu oraz osobnej decyzji zastępującej.
+These decisions are accepted for v0.1. A change requires an explicit
+superseding decision and updates to the specification and tests.
 
-## ADR-001: minimalne publiczne API
+## ADR-001: Small public API
 
-**Decyzja:** publicznym wejściem są `Agent` i `tool`; agent jest callable, a
-konstruktor przyjmuje tylko plik Markdown.
+`Agent(agent_file)` and `@tool` are the user entry points. Model selection,
+tools, and output schema stay out of orchestration code. No default `run()`,
+`invoke()`, or builder API is planned.
 
-**Powód:** konfiguracja modelu, narzędzi i outputu pozostaje poza kodem
-orkiestrującym, a powierzchnia kompatybilności jest mała.
+## ADR-002: Orchestration stays in Python
 
-**Konsekwencja:** ergonomiczne metody `run`, `invoke` i rozbudowany builder są
-poza zakresem.
+Moiryx does not provide a graph, workflow, or chain DSL. Application functions
+own branching, looping, and concurrency so control flow remains inspectable.
 
-## ADR-002: orkiestracja pozostaje w Pythonie
+## ADR-003: Pydantic defines structured results
 
-**Decyzja:** Moiryx nie implementuje graph/workflow/chain DSL.
+A successful structured run returns the declared `BaseModel` instance. It
+uses the reserved final tool or guaranteed native structured output. Parsing
+JSON out of prose is not a fallback.
 
-**Powód:** użytkownik zachowuje kontrolę nad przepływem, debugowaniem,
-warunkami i współbieżnością bez frameworkowej semantyki.
+## ADR-004: Preflight the whole tool batch
 
-**Konsekwencja:** powtarzalny flow może być zwykłą funkcją aplikacji.
+Resolve, parse, and validate every call before executing any call. One invalid
+call blocks the entire batch, preventing partial side effects.
 
-## ADR-003: Pydantic jako jedyne źródło structured output
+## ADR-005: Conservative repair only
 
-**Decyzja:** sukces structured runu zwraca konkretną instancję `BaseModel`.
-Preferowany protokół to zarezerwowany `__moiryx_submit_result` albo native
-structured output gwarantowany przez providera.
+Repair unambiguous syntax and transport mistakes; never fuzzy-match a tool or
+invent arguments. A suggested name goes back to the model for an explicit new
+call.
 
-**Powód:** parsowanie JSON-a z treści Markdown nie gwarantuje kontraktu.
+## ADR-006: Per-call run state
 
-**Konsekwencja:** brak właściwej capability jest błędem, a nie sygnałem do
-heurystycznego fallbacku.
+Every `await agent(prompt)` has its own `RunContext`. Agents have no implicit
+conversation memory, and concurrent calls cannot share message history.
 
-## ADR-004: preflight całego batcha tool calli
+## ADR-007: Sequential tools in v0.1
 
-**Decyzja:** wszystkie calle w odpowiedzi są rozwiązywane, parsowane i
-walidowane przed wykonaniem któregokolwiek.
+A valid batch executes in model order. This makes mutations and diagnostics
+predictable even if a provider reports parallel tool-call capability.
 
-**Powód:** częściowe wykonanie batcha mogłoby mutować stan przed wykryciem
-błędu w innym callu.
+## ADR-008: Moiryx naming
 
-**Konsekwencja:** jeden błędny call blokuje cały batch i uruchamia repair round.
-
-## ADR-005: repair tylko konserwatywny
-
-**Decyzja:** runtime może poprawiać jednoznaczne problemy transportowe i
-syntaktyczne, ale nie wykonuje fuzzy-matched toola ani nie wymyśla argumentów.
-
-**Powód:** bezpieczeństwo i powtarzalność są ważniejsze niż pozorny success
-rate.
-
-**Konsekwencja:** sugestia podobnej nazwy trafia do modelu, który musi jawnie
-ponowić call.
-
-## ADR-006: izolowany stan runu
-
-**Decyzja:** każdy `await agent(prompt)` tworzy nowy `RunContext`.
-
-**Powód:** brak ukrytej pamięci i bezpieczne `asyncio.gather` na jednej
-instancji.
-
-**Konsekwencja:** trwała rozmowa może w przyszłości powstać jako osobny,
-wyraźny typ, ale nie jest zachowaniem `Agent`.
-
-## ADR-007: sekwencyjne wykonanie tooli w v0.1
-
-**Decyzja:** poprawny batch tool calli jest wykonywany w kolejności otrzymanej
-od modelu.
-
-**Powód:** łatwiejsze debugowanie i bezpieczniejsza semantyka dla operacji
-mutujących.
-
-**Konsekwencja:** `parallel_tool_calls` opisuje capability providera, lecz
-równoległy executor nie należy do v0.1.
-
-## ADR-008: finalna nazwa Moiryx
-
-**Decyzja:** import, przykłady i identyfikatory projektu używają `moiryx`.
-
-**Powód:** nazwa została ustalona przed rozpoczęciem implementacji.
-
-**Konsekwencja:** stare identyfikatory nie otrzymują aliasów kompatybilności,
-bo nie istnieje jeszcze publiczna wersja wymagająca migracji.
+The package, import, examples, and configuration use `moiryx`. No legacy
+aliases are provided before the first public release.

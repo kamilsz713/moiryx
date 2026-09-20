@@ -1,32 +1,30 @@
 # Changelog
 
-Wszystkie istotne zmiany projektu są zapisywane tutaj. Wersje używają
-semantyki PEP 440; `0.1.0a1` oznacza pierwszą wersję alpha, jeszcze
-nieopublikowaną na PyPI.
+Notable changes are recorded here. Versions follow PEP 440; `0.1.0a1` is the
+first alpha and has not yet been published to PyPI.
 
-## 0.1.0a1 — przygotowywane
+## 0.1.0a1 — in preparation
 
-### Dodano
+### Added
 
-- Deklaratywnych agentów Markdown z konfiguracją `moiryx.yaml`, aliasami
-  modeli i publicznym API `Agent` oraz `@tool`.
-- Pętlę tekstową z narzędziami, walidacją argumentów, konserwatywną naprawą
-  błędnych wywołań i niezależnymi budżetami retry.
-- Wyniki Pydantic, także zagnieżdżone, przez synthetic final tool lub
-  natywny JSON schema, zależnie od capabilities providera.
-- Adaptery OpenAI-compatible (w tym llama-server/llama-swap), OpenRouter,
-  Azure OpenAI, Azure Foundry i Vertex AI.
-- Narzędzia workspace do odczytu, wyszukiwania, zapisu i edycji plików,
-  a także jawnie włączany `shell`.
-- Zdarzenia runu, opcjonalny JSONL trace i centralną redakcję sekretów.
-- Deterministyczną suite AC1–AC11, przykłady użytkowe i macierz CI.
+- Markdown agent definitions, YAML model aliases, and the `Agent` and `@tool`
+  public API.
+- Text-agent runtime with tool validation, conservative repair of malformed
+  calls, and separate retry budgets.
+- Pydantic structured results, including nested models, through a synthetic
+  final tool or native JSON schema where the provider supports it.
+- OpenAI-compatible, OpenRouter, Azure OpenAI, Azure Foundry, and Vertex AI
+  adapters.
+- Workspace-scoped file tools and an explicitly enabled `shell` tool.
+- Run events, optional JSONL traces, and centralized secret redaction.
+- Deterministic AC1–AC11 acceptance tests, examples, and a CI matrix.
 
-### Ograniczenia alpha
+### Alpha limitations
 
-- Brak streamingu, sesji, multimodalności i automatycznego fallbacku.
-- `shell` nie jest sandboxem; udostępniaj go tylko w zaufanym środowisku.
-- Zgodność modeli lokalnych z function calling i JSON schema zależy od modelu
-  oraz jego chat template.
+- No streaming, sessions, multimodal input, or automatic model fallback.
+- `shell` is not a sandbox; use it only in trusted environments.
+- Function calling and JSON-schema behavior of local models depend on the
+  model and its chat template.
 
-Szczegóły dogfoodingu i otwarte bramy wydania są w
-[`docs/release-notes-alpha.md`](docs/release-notes-alpha.md).
+See the [alpha release notes](docs/release-notes-alpha.md) for verification
+status and remaining release work.

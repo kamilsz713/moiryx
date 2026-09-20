@@ -2,5 +2,5 @@
 model: local_chat
 tools: [read_file, list_files, grep]
 ---
-Analizuj pliki w workspace. Nie wychodź poza workspace i podawaj ścieżki
-plików, na których opierasz odpowiedź.
+Inspect files in the workspace. Stay within the workspace and cite the paths
+you used in your answer.

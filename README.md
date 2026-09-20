@@ -1,32 +1,29 @@
 # Moiryx
 
-Moiryx pozwala opisać agenta w Markdownzie, wybrać model przez YAML i uruchomić
-go jak zwykły obiekt async w Pythonie. Ten sam agent może przejść z lokalnego
-`llama-server` na OpenRouter, Azure lub Vertex AI bez zmian w jego kodzie.
+Moiryx lets you define an agent in Markdown, select its model in YAML, and call
+it like an async Python object. You can move the same agent from a local
+`llama-server` to OpenRouter, Azure, or Vertex AI without changing Python code.
 
-Projekt jest obecnie w fazie alpha. Publiczny kontrakt użytkowy jest celowo
-mały: `Agent`, `@tool` oraz konfiguracja `moiryx.yaml`.
+This project is an alpha. Its deliberately small user-facing API consists of
+`Agent`, `@tool`, and `moiryx.yaml`.
 
-## Instalacja
+## Installation
 
-Wydanie `0.1.0a1` jest przygotowywane i nie zostało jeszcze opublikowane na
-PyPI. Aktualnie instaluj projekt z katalogu źródłowego:
+Version `0.1.0a1` has not been published to PyPI. Install from this checkout:
 
 ```bash
 python -m pip install -e .
 ```
 
-Po publikacji będzie można użyć `python -m pip install moiryx==0.1.0a1`.
-
-Dla Vertex AI zainstaluj opcjonalny Google Gen AI SDK:
+Vertex AI requires the optional Google Gen AI SDK:
 
 ```bash
-pip install "moiryx[google]"
+python -m pip install -e ".[google]"
 ```
 
-## Pierwszy agent z lokalnym llama-server
+## Your first agent with a local llama-server
 
-Uruchom endpoint zgodny z OpenAI API, a następnie utwórz `moiryx.yaml`:
+Start an OpenAI-compatible endpoint and create `moiryx.yaml`:
 
 ```yaml
 providers:
@@ -40,16 +37,16 @@ models:
     model: local-model
 ```
 
-Zapisz definicję w `agents/chat.md`:
+Save the agent as `agents/chat.md`:
 
 ```markdown
 ---
 model: local_chat
 ---
-Odpowiadaj konkretnie i zaznaczaj niepewność.
+Answer directly and say when you are uncertain.
 ```
 
-Wywołanie agenta jest asynchroniczne:
+Call it from Python:
 
 ```python
 import asyncio
@@ -59,38 +56,37 @@ from moiryx import Agent
 
 async def main() -> None:
     agent = Agent("agents/chat.md")
-    answer = await agent("Wyjaśnij różnicę między procesem i wątkiem.")
+    answer = await agent("What is the difference between a process and a thread?")
     print(answer)
 
 
 asyncio.run(main())
 ```
 
-Jeśli tworzysz wiele agentów w dłużej działającym procesie, po użyciu wywołaj
-`await agent.aclose()` albo użyj `async with Agent(...)`. To zwalnia połączenia
-HTTP providera; prosty skrypt jednorazowy nie wymaga dodatkowej obsługi.
+For a long-lived application, call `await agent.aclose()` when you are done, or
+use `async with Agent(...)`. This releases the provider's HTTP connections. A
+one-off script can simply exit.
 
 ## Built-in tools
 
-Narzędzia nie są udostępniane automatycznie. Agent dostaje wyłącznie nazwy
-wpisane w jego frontmatter:
+Tools are opt-in. Add only the ones an agent needs to its frontmatter:
 
 ```markdown
 ---
 model: local_chat
 tools: [read_file, list_files, grep]
 ---
-Analizuj pliki w workspace i podawaj ścieżki użytych źródeł.
+Inspect files in the workspace and cite the paths you used.
 ```
 
-Dostępne built-ins to `read_file`, `list_files`, `glob_files`, `grep`,
-`write_file`, `edit_file` i `shell`. Operacje plikowe pozostają domyślnie w
-`runtime.workspace_root`.
+Available tools are `read_file`, `list_files`, `glob_files`, `grep`,
+`write_file`, `edit_file`, and `shell`. File operations stay within
+`runtime.workspace_root` by default.
 
-> `shell` nie jest pełnym sandboxem. Udostępniaj go tylko agentom i w
-> środowiskach, którym ufasz.
+> `shell` is not a security sandbox. Enable it only for agents and workspaces
+> you trust.
 
-## Własne narzędzie
+## Custom tools
 
 ```python
 from moiryx import tool
@@ -102,7 +98,8 @@ def word_count(text: str) -> int:
     return len(text.split())
 ```
 
-Dodaj moduł do konfiguracji i nazwę toola do agenta:
+Import the module through the configuration, then select the tool in the
+agent definition:
 
 ```yaml
 tool_modules: [my_tools]
@@ -113,12 +110,12 @@ tool_modules: [my_tools]
 model: local_chat
 tools: [word_count]
 ---
-Używaj narzędzia do dokładnego liczenia słów.
+Use the tool to count words accurately.
 ```
 
 ## Structured output
 
-Model wyniku jest zwykłym modelem Pydantic:
+Declare the result with an ordinary Pydantic model:
 
 ```python
 from pydantic import BaseModel, Field
@@ -130,22 +127,22 @@ class ReviewResult(BaseModel):
     findings: list[str]
 ```
 
-Agent wskazuje go przez `moduł:Klasa`:
+Reference it as `module:Class` in the agent:
 
 ```markdown
 ---
 model: local_chat
 output: review_models:ReviewResult
 ---
-Oceń zmianę i zwróć wynik zgodny ze schematem.
+Review the change and return a result matching the schema.
 ```
 
-`await agent(...)` zwróci bezpośrednio instancję `ReviewResult`. Moiryx nie
-uznaje JSON-u ukrytego w zwykłym tekście za poprawny structured output.
+`await agent(...)` returns a `ReviewResult` instance. JSON embedded in plain
+text does not count as a structured result.
 
-## Zmiana providera przez YAML
+## Switching providers in YAML
 
-Kod i plik agenta mogą pozostać bez zmian. Wystarczy przepiąć alias modelu:
+Keep the Python code and agent file; change the model alias configuration:
 
 ```yaml
 providers:
@@ -162,15 +159,11 @@ models:
     model: anthropic/claude-sonnet-4.5
 ```
 
-Obsługiwane typy providerów:
+Supported provider types are `openai_compatible` (including llama-server,
+vLLM, and SGLang), `openrouter`, `azure_openai`, `azure_foundry`, and
+`vertex_ai` (using Application Default Credentials or a service account).
 
-- `openai_compatible` — llama-server, vLLM, SGLang i podobne endpointy;
-- `openrouter`;
-- `azure_openai`;
-- `azure_foundry`;
-- `vertex_ai` — przez ADC lub service account environment.
-
-## Logowanie i trace
+## Logging and traces
 
 ```yaml
 logging:
@@ -179,17 +172,17 @@ logging:
   include_raw_response: false
 ```
 
-Każdy run ma własny identyfikator i opcjonalny plik
-`.moiryx/runs/<run-id>/events.jsonl`. Raw response jest wyłączony domyślnie;
-jego jawne włączenie nadal stosuje centralną redakcję kluczy, tokenów i
-credentials.
+Each run has its own ID and, when tracing is enabled, an
+`.moiryx/runs/<run-id>/events.jsonl` file. Raw provider responses are off by
+default. If enabled, configured secrets and sensitive fields are still
+redacted.
 
-## Pełne przykłady i rozwój
+## Examples and development
 
-Gotowe pliki znajdują się w [`examples/`](examples/). Dokumentacja projektu,
-architektura, ograniczenia bezpieczeństwa i backlog są w [`docs/`](docs/).
+See [`examples/`](examples/) for runnable definitions and [`docs/`](docs/) for
+architecture, limitations, release notes, and the issue backlog.
 
-Lokalne bramy jakości:
+Run the local quality checks:
 
 ```bash
 python scripts/check.py
@@ -198,9 +191,6 @@ python -m build
 python scripts/audit_artifacts.py dist
 ```
 
-Zestaw `acceptance` ćwiczy publiczne API na deterministycznych providerach
-testowych, bez sieci i kluczy. Obejmuje też przykładowych agentów tekstowego,
-edycji pliku, własnego narzędzia i zagnieżdżonego review.
-
-Test live lokalnego endpointu jest jawnie opt-in przez zmienne
-`MOIRYX_OPENAI_COMPATIBLE_LIVE_URL` i `MOIRYX_OPENAI_COMPATIBLE_LIVE_MODEL`.
+Acceptance tests use deterministic fake providers; they need no network or
+credentials. The live local-endpoint test is opt-in through
+`MOIRYX_OPENAI_COMPATIBLE_LIVE_URL` and `MOIRYX_OPENAI_COMPATIBLE_LIVE_MODEL`.

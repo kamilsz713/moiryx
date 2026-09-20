@@ -1,140 +1,51 @@
-# Architektura
-
-## Widok całości
+# Architecture
 
 ```text
-Kod aplikacji
-  │  await agent(prompt)
-  ▼
-Agent ── ładuje ──> AgentSpec
-  │                    │
-  │                    ├── model alias ──> ModelRegistry
-  │                    ├── tool names ───> ToolRegistry
-  │                    └── output ref ───> Pydantic model
-  ▼
-AgentRuntime
-  ├── RunContext i wiadomości
-  ├── tool-call preflight / repair / execution
-  ├── structured output
-  ├── retry i limity
-  └── logging / trace
-  │
-  ▼
-ProviderAdapter ──> lokalny endpoint / OpenRouter / Azure / Vertex AI
+Application code ── await agent(prompt) ──> Agent
+                                        ├── Markdown -> AgentSpec
+                                        ├── YAML -> model/provider registry
+                                        └── selected tools/output model
+                                                   │
+                                                   ▼
+                                Runtime + per-call RunContext
+                                  ├── provider retry and limits
+                                  ├── whole-batch tool preflight
+                                  ├── tool execution and repair
+                                  ├── structured result validation
+                                  └── events and trace
+                                                   │
+                                                   ▼
+                                      ProviderAdapter -> API/SDK
 ```
 
-## Granice komponentów
+`Agent` resolves configuration, model, provider, tools, and output schema at
+construction. It holds no per-run messages. Each call creates its own
+`RunContext`, so one agent instance can serve concurrent calls without mixing
+histories. Call `await agent.aclose()` or use `async with Agent(...)` to release
+its provider client in a long-lived process.
 
-### `Agent`
+The provider boundary takes a normalized `ModelRequest` and returns a
+`ModelResponse`. Adapters retain malformed raw tool arguments for the shared
+repair layer but do not expose SDK objects to the runtime. The core does not
+branch on provider names, and tools do not import provider adapters.
 
-Jest cienką fasadą. Konstruktor ładuje i waliduje definicję, rozwiązuje model,
-providera, narzędzia oraz output model. `__call__` deleguje wykonanie do
-runtime'u. Nie przechowuje historii pojedynczego runu.
+## One run
 
-### Konfiguracja i registry
+1. Start an isolated context with system and user messages.
+2. Request a model response; retries do not consume extra agent steps.
+3. Preflight every tool call before executing any call in the batch.
+4. If the batch is invalid, execute none of it and return bounded repair
+   feedback. Otherwise, execute calls sequentially.
+5. Stop on final text or a validated structured result. Missing content,
+   exhausted repair budgets, and step limits raise explicit errors.
 
-`ConfigLoader` odpowiada za znalezienie pliku, interpolację środowiska i
-walidację. `ModelRegistry` mapuje alias logiczny na `ModelConfig`, a
-`ProviderRegistry` tworzy i utrzymuje adaptery. `ToolRegistry` przechowuje
-built-in oraz zaimportowane custom tools.
+Events observe this flow but never control it. Logging and optional JSONL
+traces redact configured secrets before output.
 
-### `AgentSpec`
+## Repository layout
 
-Niemutowalny wynik parsowania Markdownu:
-
-- nazwa;
-- logiczny alias modelu;
-- instrukcje;
-- lista nazw tooli;
-- opcjonalna klasa Pydantic;
-- limit kroków;
-- ustawienia generacji.
-
-Nie jest publicznym API v0.1.
-
-### `AgentRuntime` i `RunContext`
-
-Runtime realizuje pętlę model/tool/final result. Dla każdego `await agent(...)`
-powstaje osobny `RunContext` z run ID, wiadomościami, licznikami prób i usage.
-Dzięki temu jedna instancja `Agent` może być bezpiecznie używana współbieżnie.
-
-### Adapter providera
-
-Adapter tłumaczy wspólny `ModelRequest` na SDK/API i zwraca
-`ModelResponse`. Zachowuje raw arguments oraz parse errors tool calli, aby
-wspólny repair layer mógł podjąć bezpieczną decyzję. Obiekty SDK nie przeciekają
-do `Agent` ani tool systemu.
-
-## Przepływ inicjalizacji
-
-1. Znajdź i zwaliduj `moiryx.yaml`.
-2. Zaimportuj jawnie wymienione `tool_modules`.
-3. Sparsuj frontmatter i body pliku agenta.
-4. Rozwiąż model alias, provider alias oraz nazwy tooli.
-5. Załaduj klasę output i sprawdź dziedziczenie po `BaseModel`.
-6. Scal generation options: runtime, model, agent.
-7. Sprawdź capabilities providera.
-8. Zwróć gotową, niemutowalną konfigurację agenta.
-
-Błędy wykrywalne statycznie mają wystąpić w konstruktorze, nie przy pierwszym
-requestcie.
-
-## Przepływ pojedynczego runu
-
-1. Utwórz `RunContext` i wiadomości system/user.
-2. Wywołaj providera; jedno wywołanie to jeden krok.
-3. Jeśli odpowiedź zawiera tool calls, wykonaj preflight całego batcha.
-4. Jeżeli dowolny call jest błędny, nie wykonuj żadnego i odeślij repair
-   feedback.
-5. Jeśli batch jest poprawny, wykonuj narzędzia sekwencyjnie.
-6. Kontynuuj aż do finalnego tekstu albo poprawnego final toola.
-7. Zakończ sukcesem albo jawnym błędem limitu/protokołu.
-
-## Wewnętrzne modele
-
-Minimalny zestaw obejmuje:
-
-- `GenerationOptions`;
-- `SystemMessage`, `UserMessage`, `AssistantMessage`, `ToolMessage`;
-- `ModelRequest`, `ModelResponse`, `Usage`;
-- `ToolSchema`, `ToolCall`, `ToolDefinition`;
-- `ProviderCapabilities`;
-- `RunContext`.
-
-Preferowane są małe dataclasses i protokoły zamiast głębokiego drzewa klas.
-
-## Kierunek zależności
-
-`agent.py` może zależeć od spec loadera, registry i runtime'u. Runtime zależy od
-znormalizowanych wiadomości, provider protocol oraz tool systemu. Adaptery
-zależą od kontraktów core, ale core nie zależy od konkretnego SDK.
-
-W szczególności:
-
-- `Agent` nie zawiera `if provider == ...`;
-- tool system nie importuje adapterów;
-- built-in tools nie znają modelu ani providera;
-- tracing obserwuje zdarzenia, ale nie steruje pętlą.
-
-## Proponowany układ pakietu
-
-```text
-src/moiryx/
-├── __init__.py
-├── agent.py
-├── runtime.py
-├── config.py
-├── agent_spec.py
-├── messages.py
-├── models.py
-├── model_registry.py
-├── errors.py
-├── tracing.py
-├── output/
-├── tools/
-│   └── builtin/
-└── providers/
-```
-
-Testy dzielimy na unit, testy adapterów z mock transportem oraz opcjonalne testy
-live oznaczone markerem `integration`.
+- `src/moiryx/agent.py`, `agent_spec.py`, `config.py`: user entry point and
+  configuration loading.
+- `runtime.py`, `messages.py`, `models.py`: provider-neutral execution.
+- `tools/`, `output/`, `providers/`: isolated subsystems.
+- `tests/`: deterministic unit, adapter, acceptance, and opt-in live tests.

@@ -1,25 +1,25 @@
-# 0.1.0a1 — status przed publikacją
+# 0.1.0a1 — pre-publication status
 
-Pakiet nie jest jeszcze opublikowany na PyPI. To robocze podsumowanie testów
-i ograniczeń pierwszej wersji alpha.
+Moiryx has not been published to PyPI. These notes record the first alpha's
+verification and remaining release work, not a publication announcement.
 
-## Zweryfikowano lokalnie
+## Verified
 
-- Testy AC1–AC11, pełną suite offline, lint i mypy.
-- Wheel i sdist: metadane MIT, changelog, brak lokalnych sekretów oraz instalację
-  wheel w czystym Pythonie 3.12.
-- Macierz GitHub CI na Pythonie 3.11 i 3.12 oraz job budowy artefaktów
-  przeszły po pierwszym pushu do repozytorium.
-- Mały smoke test tekstowy tego samego agenta na lokalnym llama-swap (Bonsai)
-  i OpenRouter (`inclusionai/ling-3.0-flash-vl:free`). Testy function calling
-  i JSON schema wykonano lokalnie. Konfiguracja użyta do live testów pozostaje
-  prywatna i nie jest częścią repozytorium.
+- AC1–AC11, the offline test suite, Ruff, and mypy passed locally.
+- Wheel and sdist include MIT metadata and the changelog; artifact auditing
+  found no local credentials. A wheel was installed and smoke-tested in a
+  clean Python 3.12 environment.
+- GitHub CI passed on Python 3.11 and 3.12, including the artifact job.
+- A small text smoke test used the same agent on local llama-swap (Bonsai)
+  and OpenRouter (`inclusionai/ling-3.0-flash-vl:free`). Local function-calling
+  and JSON-schema examples were also exercised. Live-test configuration stays
+  private and is not part of the repository.
 
-## Otwarte kroki
+## Remaining
 
-- Potwierdzić dostępność nazwy i skonfigurować publikację na PyPI. Samo
-  przygotowanie artefaktów nie jest zgodą na publikację.
+- Confirm the distribution name and configure PyPI publishing. Building an
+  artifact or pushing GitHub commits does not authorize publication.
 
-`shell` nie jest sandboxem. Obsługa function calling i JSON schema przez
-lokalne modele zależy od modelu i jego chat template; smoke test jednego modelu
-nie stanowi gwarancji dla innych.
+`shell` is not a sandbox. Local function-calling and JSON-schema behavior
+depends on the model and chat template; one successful smoke test is not a
+guarantee for other models.

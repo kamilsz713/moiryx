@@ -20,14 +20,14 @@ def _blocks(text: str, language: str) -> list[str]:
 def test_readme_leads_with_user_experience_and_covers_public_flows() -> None:
     readme = (PROJECT_ROOT / "README.md").read_text("utf-8")
 
-    assert readme.startswith("# Moiryx\n\nMoiryx pozwala opisać agenta")
+    assert readme.startswith("# Moiryx\n\nMoiryx lets you define an agent")
     for expected in (
-        "## Pierwszy agent z lokalnym llama-server",
+        "## Your first agent with a local llama-server",
         "## Built-in tools",
-        "## Własne narzędzie",
+        "## Custom tools",
         "## Structured output",
-        "## Zmiana providera przez YAML",
-        "## Logowanie i trace",
+        "## Switching providers in YAML",
+        "## Logging and traces",
     ):
         assert expected in readme
     assert "sentinel-" not in readme

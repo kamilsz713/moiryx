@@ -1,152 +1,47 @@
-# Providerzy
+# Provider adapters
 
-## Wspólny kontrakt
+Every adapter exposes capabilities, `async complete(ModelRequest)`, and
+`async close()`. It returns a normalized `ModelResponse` containing text,
+tool calls, structured output when requested, finish reason, usage, and
+optional debug data. Malformed tool arguments retain their raw form so the
+shared preflight layer can return useful feedback. Adapters must not leak
+SDK-specific objects into the core API or put a native structured result in
+the text field.
 
-Adapter implementuje capabilities, asynchroniczne `complete(request)` oraz
-`close()`. Przyjmuje znormalizowany `ModelRequest` i zwraca
-`ModelResponse`:
+`ProviderRequestError` records an optional HTTP status and retryability.
+HTTP 429 and selected 5xx responses are transient; typical 4xx failures are
+not. Three capability flags describe tool calling, guaranteed native
+structured output, and parallel tool calls. Local endpoints may override
+these flags explicitly in YAML.
 
-```python
-class ProviderAdapter(Protocol):
-    @property
-    def capabilities(self) -> ProviderCapabilities: ...
-    async def complete(self, request: ModelRequest) -> ModelResponse: ...
-    async def close(self) -> None: ...
-```
+## Supported providers
 
-Request zachowuje opcjonalny `output_schema`, gdy runtime wybierze gwarantowany
-native structured output. Odpowiedź zachowuje content, tool calls, jawny
-`structured_output`, finish reason, usage i opcjonalny raw payload wyłącznie do
-debugowania. Adapter nie umieszcza native structured payloadu w polu tekstowym.
+| Type | Transport and authentication | Notes |
+| --- | --- | --- |
+| `openai_compatible` | `httpx.AsyncClient`, optional API key | OpenAI-style `chat/completions`; suitable for llama-server, vLLM, SGLang, and similar endpoints. |
+| `openrouter` | Shared OpenAI-compatible transport, Bearer key | Defaults to `https://openrouter.ai/api/v1`; optional `HTTP-Referer` and `X-OpenRouter-Title` headers. Model IDs remain opaque. |
+| `azure_openai` | Shared HTTP transport, `api-key` or explicit Bearer header | Model ID is the deployment in the URL; `api-version` is required. |
+| `azure_foundry` | Shared HTTP transport, `api-key` or explicit Bearer header | Uses the configured endpoint and an optional API version. |
+| `vertex_ai` | Optional `google-genai` SDK, ADC/service account | Maps message parts, function calls, generation options, native schema, and token usage; inline API keys and custom auth headers are rejected. |
 
-`ProviderRequestError` zachowuje opcjonalny status HTTP oraz flagę
-`retryable`. Domyślna klasyfikacja ponawia 429, 500, 502, 503 i 504; timeout
-transportu i reset połączenia są klasyfikowane przez wspólny runtime. Typowe
-4xx oraz pozostałe błędy kończą się bez automatycznego retry.
+OpenAI-compatible responses normalize provider usage and tool-call IDs.
+OpenRouter additionally preserves reported cost when present; absent usage
+values remain `None`, not zero. Native structured output is not guaranteed
+for arbitrary OpenRouter or local models by default.
 
-Tool call zachowuje ID, nazwę, sparsowane arguments, raw arguments i parse
-error. Adapter nie kończy runu tylko dlatego, że same arguments są uszkodzone;
-wspólny repair layer potrzebuje surowych danych.
+The Azure adapters need only core `httpx`; the `azure` extra exists as a
+stable, intentionally empty install target. Vertex AI requires
+`pip install "moiryx[google]"`. The core package does not install Google SDK
+unless requested.
 
-## Capability model
+One `Agent` reuses its provider client across steps and calls. Separate agent
+instances do not share a connection pool or run history. In a long-lived
+process, use `await agent.aclose()` or `async with Agent(...)` to close the
+client. The basic one-off call does not require a context manager.
 
-Minimalne flagi:
-
-- `tool_calling`;
-- `native_structured_output`;
-- `parallel_tool_calls`.
-
-Adapter dostarcza sensowne defaulty. Niestandardowy lokalny endpoint może mieć
-jawny override w konfiguracji. Walidację wykonujemy możliwie wcześnie podczas
-tworzenia `Agent`.
-
-## Adaptery v0.1
-
-### `openai_compatible`
-
-Pierwszy adapter produkcyjny i baza dla lokalnych `llama-server`, vLLM, SGLang
-oraz podobnych endpointów. Jest domyślnie zarejestrowany dla provider type
-`openai_compatible` i używa jednego `httpx.AsyncClient` na instancję providera.
-Implementacja obejmuje:
-
-- async HTTP client i konfigurowalny base URL;
-- opcjonalny API key;
-- messages i tool schemas;
-- zachowanie tool-call IDs i raw arguments;
-- timeout oraz usage, jeśli dostępne;
-- wysyłanie tylko wspieranego, niezbędnego podzbioru parametrów.
-
-Request trafia do `chat/completions`. Puste tools i nieustawione opcje generation
-są pomijane. `output_schema` jest mapowany na
-`response_format.type=json_schema`; tylko w tym trybie dokładny JSON content
-może zostać znormalizowany do `structured_output`.
-
-HTTP 429 oraz przejściowe 5xx zachowują klasyfikację retryable. Timeout jest
-przekazywany do wspólnego retry jako `TimeoutError`, a błędy transportu i
-niepoprawne odpowiedzi nie ujawniają body ani danych autoryzacyjnych.
-
-### Scripted fake
-
-`ScriptedFakeProvider` realizuje ten sam protokół bez sieci. Przyjmuje kolejkę
-znormalizowanych odpowiedzi lub wyjątków, zwraca je w kolejności i zapisuje
-snapshot każdego requestu. Służy do deterministycznych testów pętli runtime,
-tool calli, structured output oraz błędów providera.
-
-### `openrouter`
-
-Cienka specjalizacja delegująca cały request, response i lifecycle do adaptera
-OpenAI-compatible. Domyślnie używa `https://openrouter.ai/api/v1`, mapuje
-`api_key` na Bearer auth i pozwala dodać dowolne nagłówki, w tym opcjonalne
-`HTTP-Referer` oraz `X-OpenRouter-Title`.
-
-Model ID jest przekazywany nieprzezroczyście, więc identyfikatory takie jak
-`vendor/model` zachowują slash. Zwrócone `prompt_tokens`, `completion_tokens`,
-`total_tokens` i `cost` są normalizowane do wspólnego `Usage`; brak wartości
-pozostaje `None`, a nie sztucznym zerem. Ponieważ wsparcie parametrów zależy od
-wybranego modelu OpenRouter, native structured output nie jest gwarantowany
-domyślnie i może zostać włączony jawnym capability override.
-
-### `azure_openai`
-
-Traktuje `ModelConfig.model` jako deployment ID. Adapter buduje trasę
-`openai/deployments/{deployment}/chat/completions`, przekazuje wymagany
-`api-version` w query i domyślnie mapuje `api_key` na nagłówek `api-key`.
-Jawny nagłówek `Authorization` pozwala zamiast tego przekazać Bearer token.
-Pole `model` nie jest dublowane w body requestu.
-
-### `azure_foundry`
-
-Pozostaje osobnym provider type, mimo że deleguje HTTP, serializację odpowiedzi,
-błędy i lifecycle do wspólnego transportu. Skonfigurowany `endpoint` jest bazą
-dla `chat/completions`, model/deployment pozostaje w body, a opcjonalny
-`api_version` trafia do query. API key używa nagłówka `api-key`; Bearer auth
-można dostarczyć przez custom `Authorization`.
-
-Oba adaptery korzystają wyłącznie z obecnego już w core `httpx`. Extra
-`moiryx[azure]` jest dlatego celowo pustym, stabilnym punktem instalacji: nie
-ma nieużywanego Azure SDK, a typy SDK nie mogą przeciec do publicznego core.
-
-### `vertex_ai`
-
-Używa opcjonalnego `google-genai` i jego klienta async. `project`, `location`
-oraz model są mapowane jawnie, a auth pozostaje w standardowym ADC/service
-account environment. Inline `api_key` i custom auth headers są odrzucane, aby
-credentials nie trafiały do konfiguracji aplikacji.
-
-Adapter tłumaczy role wiadomości, function declarations/responses, generation
-options i native JSON Schema. Tekst, function calls, finish reason oraz
-`prompt_token_count`, `candidates_token_count` i `total_token_count` wracają
-wyłącznie jako typy core Moiryx; obiekty SDK nie przeciekają przez `raw`.
-Instalacja wymaga `pip install "moiryx[google]"`, podczas gdy core pozostaje bez
-Google SDK.
-
-## Fabryka i lifecycle
-
-`PROVIDER_FACTORIES` mapuje type na konstruktor adaptera. Nieznany type to
-`ConfigurationError`. Jeden `Agent` używa tego samego klienta między krokami
-i wywołaniami; różne obiekty `Agent` nie współdzielą connection pool ani
-historii runu.
-
-Podstawowe API nie wymaga context managera. Przy dłużej żyjących procesach
-można jawnie wywołać `await agent.aclose()` lub użyć `async with Agent(...)`;
-oba sposoby zamykają połączenia providera po zakończeniu pracy.
-
-## Strategia testów adapterów
-
-Każdy adapter dostaje:
-
-- test mapowania requestu;
-- test tekstowej odpowiedzi;
-- test jednego i wielu tool calli;
-- test malformed arguments z zachowaniem raw payload;
-- test usage;
-- test klasyfikacji błędów retryable/non-retryable;
-- test capabilities;
-- test redakcji sekretów.
-
-CI korzysta wyłącznie z mock transportu/SDK. Live tests są oznaczone
-`integration`, domyślnie wyłączone i wymagają jawnych zmiennych środowiskowych.
-Smoke dla lokalnego endpointu wymaga jednocześnie
-`MOIRYX_OPENAI_COMPATIBLE_LIVE_URL` i
-`MOIRYX_OPENAI_COMPATIBLE_LIVE_MODEL`; opcjonalny klucz przyjmuje
+Adapter tests use mock HTTP transports or injected SDK clients. Live tests
+are opt-in through the `integration` marker and explicit environment
+variables. Local endpoint smoke tests require
+`MOIRYX_OPENAI_COMPATIBLE_LIVE_URL` and
+`MOIRYX_OPENAI_COMPATIBLE_LIVE_MODEL`; an optional key uses
 `MOIRYX_OPENAI_COMPATIBLE_LIVE_API_KEY`.

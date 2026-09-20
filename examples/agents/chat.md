@@ -1,4 +1,4 @@
 ---
 model: local_chat
 ---
-Odpowiadaj konkretnie, krótko i zaznaczaj niepewność.
+Answer directly and briefly. Say when you are uncertain.

@@ -1,171 +1,86 @@
-# Tools, runtime i structured output
+# Tools, runtime, and structured output
 
-## Publiczne API toola
-
-Custom tool jest zwykłą funkcją:
+## Custom tools
 
 ```python
 from moiryx import tool
 
+
 @tool
 async def get_build_status(build_id: int) -> BuildStatus:
-    """
-    Return current CI build status.
-
-    Args:
-        build_id: Unique identifier of the build.
-    """
+    """Return the current CI build status."""
     ...
 ```
 
-Dekorator zachowuje normalne wywołanie funkcji, rejestruje definicję pod
-`func.__name__` oraz przypisuje metadane `__moiryx_tool__`. Nie przyjmuje
-argumentu z nazwą.
+`@tool` returns the original function, registers it under its Python name,
+and attaches `__moiryx_tool__` metadata. Registration inspects its signature
+and type hints, reads its docstring, builds a Pydantic input model and JSON
+schema, and prepares a return-value adapter. Missing annotations, unsupported
+parameter kinds (`*args`, `**kwargs`, positional-only), duplicate names, and
+the reserved `__moiryx_submit_result` name are rejected.
 
-## Introspekcja i schema
+Arguments are validated before execution. Async functions are awaited; sync
+functions run in a worker thread. Each call has a timeout. Results are
+serialized to text and visibly truncated at `max_tool_output_chars`. Tool
+exceptions and timeouts return a failed `ToolMessage` to the model without a
+full traceback. Event status comes from the result, not from parsing its text.
 
-Przy rejestracji runtime:
+## Whole-batch preflight
 
-1. odczytuje `inspect.signature()` i `typing.get_type_hints()`;
-2. odrzuca brakujące adnotacje, `*args` oraz `**kwargs`;
-3. parsuje summary i opisy parametrów z docstringa;
-4. buduje dynamiczny model Pydantic przez `create_model()`;
-5. generuje JSON Schema przez `model_json_schema()`;
-6. przygotowuje `TypeAdapter` do serializacji wyniku.
-
-Minimalnie wspieramy typy proste, Optional/union z `None`, listy, słowniki,
-`Literal`, Enum, nested `BaseModel` i proste dataclasses obsługiwane przez
-Pydantic. Dynamiczny input model zabrania nadmiarowych pól, aby runtime nie
-ignorował argumentów, których tool nie deklaruje.
-
-Duplikat nazwy jest błędem. Nazwa `__moiryx_submit_result` jest zarezerwowana.
-
-## Walidacja i wykonanie
-
-Argumenty przechodzą przez input model przed wywołaniem funkcji. Sync tools są
-uruchamiane przez `asyncio.to_thread()`, async tools są awaitowane. Każdy call
-ma timeout.
-
-Wynik jest serializowany do tekstowego `ToolMessage.content`. Wspierane są
-stringi, typy JSON, Pydantic, dataclasses oraz `None`. Przekroczenie
-`max_tool_output_chars` daje jawny marker:
+Every tool call in a model response is checked before any tool executes:
 
 ```text
-...[TRUNCATED BY MOIRYX: original output exceeded 50000 chars]
+normalize -> exact name lookup -> conservative argument repair
+          -> Pydantic validation -> execute all sequentially, or execute none
 ```
 
-Rozróżniamy walidację argumentów, wyjątek funkcji oraz timeout. Błędy wykonania
-są domyślnie zwracane modelowi bez pełnego stack trace; lokalny log może
-zachować wyjątek do diagnostyki.
+Allowed repairs are deterministic: trim whitespace around a name, parse a
+JSON object, unwrap one obvious double-encoded object or `arguments` wrapper,
+and apply input-model coercion. The runtime does not guess a similar tool,
+invent missing values, drop unknown fields, or extract arguments from prose.
+An unknown name may receive a suggestion, but the model must issue a new call.
+Repeated invalid calls consume `tool_call_repair_attempts`; exhaustion raises
+`ToolCallRepairError`.
 
-## Preflight i repair
+## Built-in tools
 
-Cały batch przechodzi kolejno:
+Agents receive only built-ins named in their Markdown frontmatter:
 
-```text
-normalize
-  -> exact tool-name lookup
-  -> conservative argument parsing/repair
-  -> Pydantic validation
-  -> wszystkie poprawne?
-       tak: wykonaj sekwencyjnie
-       nie: wykonaj zero, odeślij feedback
-```
+| Purpose | Tools |
+| --- | --- |
+| Read and search | `read_file`, `list_files`, `glob_files`, `grep` |
+| Write | `write_file`, `edit_file` |
+| Process | `shell` |
 
-Dozwolone naprawy są deterministyczne:
+File paths are resolved beneath `workspace_root` by default, including
+symlinks and junctions. `allow_paths_outside_workspace: true` explicitly
+relaxes that policy. `read_file` reads UTF-8 and supports inclusive, one-based
+line ranges. `list_files` is non-recursive; `glob_files` accepts only relative
+patterns without parent traversal. `grep` uses `rg` when available and a
+Python UTF-8 fallback otherwise. `write_file` uses an atomic replacement;
+`edit_file` changes a file only if `old_text` occurs exactly once.
 
-- trim whitespace w nazwie;
-- zwykły parse JSON stringa;
-- jednokrotne rozpakowanie double-encoded JSON;
-- rozpakowanie oczywistego wrappera `arguments` tylko przy jednoznacznym
-  dopasowaniu schema;
-- standardowa coercion Pydantic, jeżeli model wejściowy ją dopuszcza.
+`shell` starts in the configured workspace, reports exit code and separate
+stdout/stderr, and terminates its process tree on timeout or cancellation.
+Unlike the file tools, **it is not a sandbox**: shell commands can access
+anything the host user can access. Enable it only for trusted agents.
 
-Niedozwolone są fuzzy wykonanie podobnego toola, dopowiadanie brakujących
-wartości, semantyczna zmiana danych, silent drop nieznanych pól i regexowe
-wydobywanie domniemanych argumentów.
+## Agent loop and structured results
 
-Nieznana nazwa może dostać sugestię w feedbacku, ale model musi ponowić call.
-Powtarzany błędny call zużywa `tool_call_repair_attempts`. Wyczerpanie budżetu
-daje `ToolCallRepairError`.
+Each model response consumes one agent step. A text agent returns final
+content without a wrapper. A response with neither content nor tool calls
+raises `AgentProtocolError`; exhausting the step budget raises
+`MaxStepsExceeded` rather than returning a partial result.
 
-Feedback korzysta z `ToolMessage`, gdy dostępny jest call ID. Przy braku
-poprawnego ID runtime używa wewnętrznego `RepairMessage`, który nie jest nowym
-promptem użytkownika.
+For structured agents, the declared Pydantic model supplies both the schema
+and final validation. With tool calling, Moiryx offers an internal
+`__moiryx_submit_result` tool. It must be called exactly once and alone after
+ordinary tools finish. Plain JSON text is not accepted as a substitute. When
+tool calling is unavailable, guaranteed native structured output may be used
+only for an agent without user tools. Otherwise construction raises
+`ProviderCapabilityError`. Protocol corrections consume the separate
+`structured_output_retries` budget.
 
-## Built-in tools v0.1
-
-Agent dostaje tylko nazwy wymienione w swoim Markdownzie.
-
-| Kategoria | Tools |
-|---|---|
-| odczyt | `read_file`, `list_files`, `glob_files`, `grep` |
-| zapis | `write_file`, `edit_file` |
-| proces | `shell` |
-
-Definicje built-inów są wiązane z konfiguracją przy tworzeniu agenta. Nie są
-rejestrowane jako custom tools ani automatycznie przekazywane modelowi.
-
-Filesystem resolve'uje root oraz każdą ścieżkę, blokuje traversal i wyjście
-przez symlink/junction. Dostęp poza rootem wymaga jawnego
-`allow_paths_outside_workspace: true`.
-
-- `read_file` czyta UTF-8; bez zakresu zachowuje pełną treść, a `start_line` i
-  `end_line` są one-based oraz inclusive;
-- `list_files` pokazuje bez rekurencji posortowane dzieci katalogu;
-- `glob_files` przyjmuje względny pattern bez `..` i zwraca wyłącznie pliki;
-- `grep` używa `rg` przez argument list z `shell=False`; gdy `rg` nie jest
-  dostępny, używa deterministycznego fallbacku Python dla plików UTF-8;
-- `write_file` tworzy katalogi nadrzędne i wykonuje atomowy zapis przez plik
-  tymczasowy w katalogu docelowym;
-- `edit_file` modyfikuje atomowo tylko wtedy, gdy `old_text` występuje dokładnie
-  raz; zero lub wiele dopasowań nie zmienia pliku.
-
-Wyniki listowania i grepa respektują `max_results`, a każdy wynik toola nadal
-podlega globalnemu `max_tool_output_chars`.
-
-`shell` jest dostępny tylko po jawnym dodaniu do agent MD. Zawsze startuje w
-canonical `workspace_root`, raportuje exit code oraz osobne stdout/stderr, a po
-timeout lub anulowaniu kończy drzewo procesu. To narzędzie **nie jest pełnym
-sandboxem bezpieczeństwa**: sama powłoka może odczytywać i modyfikować zasoby
-dostępne dla procesu użytkownika. Należy udostępniać je wyłącznie zaufanym
-agentom.
-
-## Pętla agenta tekstowego
-
-Każdy response providera zwiększa licznik kroków. Tool calls uruchamiają
-preflight i wykonanie, a odpowiedź bez tool calli musi zawierać finalny content.
-Zwracany jest wyłącznie ten ostatni content. Brak contentu oraz tool calli to
-`AgentProtocolError`. Osiągnięcie limitu to `MaxStepsExceeded`, nigdy częściowy
-sukces.
-
-## Structured output
-
-Klasa wskazana przez `output` jest źródłem JSON Schema oraz walidacji końcowej.
-Preferowana strategia:
-
-1. dodaj wewnętrzny `__moiryx_submit_result` z parameter schema output modelu;
-2. pozwól agentowi używać normalnych tooli;
-3. przy finalnym callu zwaliduj arguments przez
-   `OutputModel.model_validate(...)`;
-4. zwróć wynik bez wrappera.
-
-Final tool nie może wystąpić z normalnym toolem ani więcej niż raz w jednym
-response. Plain text nie jest parsowany jako JSON; uruchamia corrective round.
-Problemy te zużywają osobny `structured_output_retries`.
-
-Polityka capabilities:
-
-1. tool calling dostępny — synthetic final tool;
-2. bez tool calling, ale z native structured output i bez user tools — native
-   schema;
-3. brak gwarantowanego mechanizmu — `ProviderCapabilityError`.
-
-## Retry i cancellation
-
-`provider_retry_attempts` dotyczy wyłącznie przejściowych timeoutów, resetów,
-HTTP 429 i wybranych 5xx; używa exponential backoff z jitterem. Błędny klucz,
-model lub request nie są retryowane automatycznie.
-
-`CancelledError` ma propagować się bez opakowania. Runtime próbuje anulować
-tool/subprocess, ale nie łapie `BaseException`.
+Provider retries cover transient transport failures, HTTP 429, and selected
+5xx responses with bounded exponential backoff and jitter. They do not retry
+bad credentials or invalid requests. Cancellation propagates to the caller.

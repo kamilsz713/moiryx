@@ -60,12 +60,12 @@ async def test_dogfood_text_agent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("MOIRYX_CONFIG", str(_write_config(tmp_path)))
-    provider = ScriptedFakeProvider([ModelResponse(content="Gotowe.")])
+    provider = ScriptedFakeProvider([ModelResponse(content="Done.")])
     PROVIDER_FACTORIES["openai_compatible"] = lambda config: provider
 
-    result = await Agent(EXAMPLES / "chat.md")("Powiedz jedno słowo")
+    result = await Agent(EXAMPLES / "chat.md")("Say one word")
 
-    assert result == "Gotowe."
+    assert result == "Done."
     assert provider.requests[0].model == "local/model-v1"
     assert provider.requests[0].tools == []
 
@@ -96,14 +96,14 @@ async def test_dogfood_coding_agent_reads_and_edits_file(
                     )
                 ]
             ),
-            ModelResponse(content="Zmieniłem wartość zwracaną na 2."),
+            ModelResponse(content="Changed the return value to 2."),
         ]
     )
     PROVIDER_FACTORIES["openai_compatible"] = lambda config: provider
 
-    result = await Agent(EXAMPLES / "workspace_editor.md")("Zmień wynik na 2")
+    result = await Agent(EXAMPLES / "workspace_editor.md")("Change the result to 2")
 
-    assert result == "Zmieniłem wartość zwracaną na 2."
+    assert result == "Changed the return value to 2."
     assert source.read_text(encoding="utf-8") == "def answer():\n    return 2\n"
     assert [schema.name for schema in provider.requests[0].tools] == [
         "read_file",
@@ -129,16 +129,16 @@ async def test_dogfood_custom_tool_integration(
     provider = ScriptedFakeProvider(
         [
             ModelResponse(
-                tool_calls=[ToolCall("count", "word_count", {"text": "raz dwa trzy"})]
+                tool_calls=[ToolCall("count", "word_count", {"text": "one two three"})]
             ),
-            ModelResponse(content="3 słowa"),
+            ModelResponse(content="3 words"),
         ]
     )
     PROVIDER_FACTORIES["openai_compatible"] = lambda config: provider
 
-    result = await Agent(EXAMPLES / "word_counter.md")("Policz: raz dwa trzy")
+    result = await Agent(EXAMPLES / "word_counter.md")("Count: one two three")
 
-    assert result == "3 słowa"
+    assert result == "3 words"
     assert isinstance(provider.requests[1].messages[-1], ToolMessage)
     assert provider.requests[1].messages[-1].content == "3"
 
@@ -162,7 +162,7 @@ async def test_dogfood_nested_reviewer(
                                 {
                                     "path": "calc.py",
                                     "line": 2,
-                                    "message": "Brak obsługi zera.",
+                                    "message": "Zero is not handled.",
                                 }
                             ],
                         },
@@ -173,12 +173,12 @@ async def test_dogfood_nested_reviewer(
     )
     PROVIDER_FACTORIES["openai_compatible"] = lambda config: provider
 
-    result = await Agent(EXAMPLES / "nested_reviewer.md")("Oceń calc.py")
+    result = await Agent(EXAMPLES / "nested_reviewer.md")("Review calc.py")
 
     assert isinstance(result, NestedReviewResult)
     assert result.findings[0].path == "calc.py"
     assert result.findings[0].line == 2
-    assert result.findings[0].message == "Brak obsługi zera."
+    assert result.findings[0].message == "Zero is not handled."
 
 
 @pytest.mark.acceptance
@@ -188,16 +188,16 @@ async def test_dogfood_switches_provider_by_config_only(
 ) -> None:
     config_path = _write_config(tmp_path)
     monkeypatch.setenv("MOIRYX_CONFIG", str(config_path))
-    local = ScriptedFakeProvider([ModelResponse(content="lokalnie")])
+    local = ScriptedFakeProvider([ModelResponse(content="local")])
     router = ScriptedFakeProvider([ModelResponse(content="router")])
     PROVIDER_FACTORIES["openai_compatible"] = lambda config: local
     PROVIDER_FACTORIES["openrouter"] = lambda config: router
     agent_file = EXAMPLES / "chat.md"
 
-    assert await Agent(agent_file)("Ten sam prompt") == "lokalnie"
+    assert await Agent(agent_file)("The same prompt") == "local"
     _write_config(tmp_path, provider="router")
     reset_config_cache()
-    assert await Agent(agent_file)("Ten sam prompt") == "router"
+    assert await Agent(agent_file)("The same prompt") == "router"
 
     assert local.requests[0].model == "local/model-v1"
     assert router.requests[0].model == "router/model-v1"
@@ -221,20 +221,20 @@ async def test_dogfood_unknown_tool_requires_a_corrected_call(
     provider = ScriptedFakeProvider(
         [
             ModelResponse(
-                tool_calls=[ToolCall("bad", "word_counts", {"text": "raz dwa"})]
+                tool_calls=[ToolCall("bad", "word_counts", {"text": "one two"})]
             ),
             ModelResponse(
-                tool_calls=[ToolCall("good", "word_count", {"text": "raz dwa"})]
+                tool_calls=[ToolCall("good", "word_count", {"text": "one two"})]
             ),
-            ModelResponse(content="2 słowa"),
+            ModelResponse(content="2 words"),
         ]
     )
     PROVIDER_FACTORIES["openai_compatible"] = lambda config: provider
 
-    result = await Agent(EXAMPLES / "word_counter.md")("Policz: raz dwa")
+    result = await Agent(EXAMPLES / "word_counter.md")("Count: one two")
 
-    assert result == "2 słowa"
-    assert calls == ["raz dwa"]
+    assert result == "2 words"
+    assert calls == ["one two"]
     bad_feedback = next(
         message
         for message in provider.requests[1].messages

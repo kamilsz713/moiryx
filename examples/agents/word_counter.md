@@ -2,4 +2,4 @@
 model: local_chat
 tools: [word_count]
 ---
-Użyj narzędzia, aby dokładnie policzyć słowa w tekście użytkownika.
+Use the tool to count the words in the user's text accurately.

@@ -1,116 +1,52 @@
-# Jakość, bezpieczeństwo i wydanie
+# Quality, security, and release
 
-## Taksonomia błędów
+## Errors and diagnostics
 
-Wszystkie publiczne błędy dziedziczą po `MoiryxError`. Minimalny zestaw:
+Public errors derive from `MoiryxError`. Configuration, agent definitions,
+unknown models or tools, provider capabilities and requests, malformed tool
+calls, structured output, protocol violations, and step limits have distinct
+exception types. Error messages include useful run and model context without
+printing credentials.
 
-- `ConfigurationError`, `AgentDefinitionError`;
-- `ProviderNotFoundError`, `UnknownModelError`,
-  `ProviderCapabilityError`, `ProviderRequestError`;
-- `UnknownToolError`, `DuplicateToolError`, `ToolDefinitionError`,
-  `ToolCallParseError`, `ToolCallRepairError`;
-- `StructuredOutputError`, `AgentProtocolError`, `MaxStepsExceeded`.
+The `moiryx.run` logger emits run boundaries at INFO, request and successful
+tool metadata at DEBUG, retries and repairs at WARNING, and terminal failures
+at ERROR. Set `logging.trace_dir` to write a separate
+`<run-id>/events.jsonl` file per invocation. Raw provider responses require
+`logging.include_raw_response: true` and are still redacted. No trace files
+are created by default.
 
-Komunikaty zawierają kontekst operacyjny — nazwę agenta, alias modelu,
-providera, run ID i limit/próby, gdy jest to istotne — ale nie sekrety.
+Redaction handles `SecretStr`, sensitive field names, and configured secret
+values embedded in text. The runtime never logs a failed preflight call as a
+completed tool execution. Keep credentials in environment variables and do
+not commit local configuration files.
 
-## Logowanie i trace
+## Security boundaries
 
-Standardowe `logging`:
+- File tools resolve paths beneath `workspace_root` unless explicitly
+  configured otherwise. This is a path policy, not a hostile-user sandbox.
+- Whole-batch preflight prevents partial side effects from an invalid batch.
+- Tool names and missing arguments are never guessed.
+- Built-ins are exposed only when selected by an agent.
+- `grep` invokes `rg` without a shell. The explicit `shell` tool *does* use
+  the system shell and can reach resources outside the workspace; its timeout
+  and output bounds do not make it safe for untrusted use.
 
-- INFO: start i koniec runu, model, liczba kroków;
-- DEBUG: metadane requestu, tool calle i walidacja;
-- WARNING: retry oraz błędy tooli;
-- ERROR: fatal run failure.
+## Verification
 
-Opcjonalny `.moiryx/runs/<run-id>/events.jsonl` zapisuje:
+`python scripts/check.py` runs offline tests, Ruff, and mypy for both the
+host platform and Linux. `python -m pytest -m acceptance -q` runs the
+AC1–AC11 scenarios. CI checks Python 3.11 and 3.12, builds wheel and sdist,
+audits release archives, and smoke-tests an installed wheel. Live provider
+tests are opt-in and are not required in CI.
 
-- `run_started`, `model_requested`, `model_responded`;
-- `tool_requested`, `tool_completed`, `tool_failed`;
-- `tool_call_repair_started`, `tool_call_repaired`,
-  `tool_call_repair_failed`;
-- `structured_output_validated`;
-- `run_completed`, `run_failed`.
+High-risk regression cases include whole-batch validation before writes,
+bounded tool and structured-output repair, nested Pydantic results, rejection
+of plain JSON text as structured output, concurrent run isolation, model IDs
+with slashes, process cancellation, and secret redaction.
 
-Każdy event ma timestamp i run ID. Nieudany, niewykonany call nie może być
-zapisany jako `tool_completed`.
+## Alpha release gate
 
-Trace jest wyłączony, dopóki użytkownik nie ustawi `logging.trace_dir`. Każdy
-run zapisuje oddzielny `<run-id>/events.jsonl`, dlatego równoległe wywołania nie
-mieszają historii. Raw odpowiedź providera wymaga dodatkowo jawnego
-`logging.include_raw_response: true`; nie zmienia to zasad redakcji.
-
-## Bezpieczeństwo
-
-- API keys, Authorization headers i credentials nigdy nie trafiają do logów,
-  trace ani `repr` konfiguracji.
-- Centralna redakcja rozpoznaje `SecretStr`, nazwy pól związane z kluczami,
-  tokenami i service accounts oraz znane wartości sekretów osadzone w tekście.
-- Filesystem tools pozostają w `workspace_root`, chyba że użytkownik jawnie
-  zmieni politykę.
-- Preflight całego batcha chroni przed częściowym wykonaniem.
-- Runtime nie zgaduje nazw ani argumentów narzędzi.
-- Built-in tools nie są automatycznie wystawiane modelowi.
-- Subprocess unika `shell=True`, ma timeout i limit outputu.
-- Mutujące narzędzia mają czytelne logi.
-
-V0.1 nie obiecuje pełnego sandboxa. Dokumentacja musi jasno zaznaczać, że jawne
-udostępnienie `shell` daje modelowi potężną lokalną możliwość.
-
-## Quality gates
-
-Każdy merge do głównej gałęzi powinien przechodzić:
-
-1. `pytest`;
-2. `ruff check` i ustalone formatowanie;
-3. `mypy` albo `pyright` w uzgodnionym strictness dla `src/moiryx`;
-4. build wheel i sdist;
-5. test importu artefaktu w czystym środowisku;
-6. test publicznego przykładu README.
-
-Testy jednostkowe nie wymagają sieci ani kluczy. Fake/scripted provider jest
-obowiązkowy, bo umożliwia deterministyczne testy pętli.
-
-## Krytyczne scenariusze regresji
-
-- final text w pierwszym kroku;
-- tool → final text, kilka tooli i tool error → poprawka;
-- pełny batch preflight przed mutacją;
-- wyczerpanie step oraz repair budgets;
-- nested structured output;
-- plain JSON text nie jest structured sukcesem;
-- final tool nie współwystępuje z normalnym toolem;
-- dwie równoległe sesje jednej instancji nie dzielą historii;
-- model ID ze slashami pozostaje bez zmian;
-- sekrety są zredagowane.
-
-## Zależności i extras
-
-Core: Python 3.11+, Pydantic 2, PyYAML, httpx i lekki parser docstringów.
-Provider SDK są opcjonalnymi extras, aby użytkownik lokalnego endpointu nie
-instalował Google/Azure.
-
-Dostępne grupy to `google`, `azure`, `all` oraz `dev`. `google` instaluje
-`google-genai`; adaptery Azure używają wspólnego HTTPX, więc ich stabilny extra
-nie dodaje zbędnego SDK. Macierz CI instaluje extras i sprawdza Python 3.11/3.12.
-
-## Release gates 0.1.0-alpha.1
-
-Przed pierwszą publikacją:
-
-- cały backlog `Must` jest ukończony;
-- wszystkie AC1–AC11 mają automatyczne testy;
-- przykłady text, tools, structured output i dwa providery zostały
-  dogfoodowane;
-- malformed call oraz concurrency zostały sprawdzone end-to-end;
-- dokumentacja publicznych wyjątków i konfiguracji jest kompletna;
-- `CHANGELOG.md`, licencja, metadata, SemVer oraz CI publikacyjne są gotowe;
-- wheel i sdist instalują się bez warningów;
-- brak realnych sekretów, prywatnych endpointów i surowych payloadów w
-  artefaktach;
-- dostępność nazwy dystrybucji na PyPI została sprawdzona, przy zachowaniu
-  importu `moiryx`.
-
-Stabilność API nie jest obiecywana przed dogfoodingiem, ale każda zmiana
-`Agent("...")`, `await agent(...)` lub `@tool` wymaga świadomej decyzji i wpisu
-w changelogu.
+Before publishing `0.1.0a1` to PyPI, verify the package name, install and
+audit both artifacts, confirm docs and the changelog, and obtain the owner's
+explicit publication decision. A successful GitHub push or CI run does not
+publish the package. API stability beyond this alpha is not promised.

@@ -1,42 +1,42 @@
-# MRYX-NNN — Krótki rezultat
+# MRYX-NNN — Concise outcome
 
-**Epik:** EX<br>
+**Epic:** EX<br>
 **Status:** Proposed<br>
-**Priorytet/rozmiar:** Must|Should|Could / S|M|L<br>
-**Zależności:** MRYX-NNN albo brak<br>
-**Właściciel:** nieprzypisany
+**Priority/size:** Must|Should|Could / S|M|L<br>
+**Dependencies:** MRYX-NNN or none<br>
+**Owner:** unassigned
 
-## Kontekst
+## Context
 
-Dlaczego rezultat jest potrzebny i do którego wymagania lub ryzyka się odnosi.
+Why is this outcome needed? Link the contract, acceptance criterion, or risk.
 
-## Zakres
+## Scope
 
-Jedna zamykalna zmiana. Wymień jawnie elementy należące do ticketu.
+Describe one finishable change and what is explicitly included.
 
-## Poza zakresem
+## Out of scope
 
-Wymień kuszące rozszerzenia, których ticket nie realizuje.
+Name tempting extensions this ticket does not include.
 
-## Kryteria akceptacji
+## Acceptance criteria
 
-- [ ] zachowanie możliwe do sprawdzenia;
-- [ ] zachowanie błędne i przypadek brzegowy;
-- [ ] wymagany test jednostkowy/integracyjny;
-- [ ] dokumentacja, jeśli dotyczy.
+- [ ] Observable successful behavior.
+- [ ] A failure or edge case.
+- [ ] Relevant unit or integration test.
+- [ ] Documentation update, when needed.
 
-## Plan testów
+## Test plan
 
-Nazwy lub scenariusze testów, wymagane fixture/mock oraz informacja, czy test
-potrzebuje sieci. Domyślnie nie potrzebuje.
+List tests, fixtures or mocks, and whether network access is required. The
+default is no network access.
 
-## Uwagi implementacyjne
+## Implementation notes
 
-Opcjonalne wskazówki. Nie wpisuj tu nowych decyzji publicznego API bez ADR.
+Optional guidance. Do not introduce a public API decision without an ADR.
 
 ## Definition of Done
 
-- [ ] kryteria akceptacji przechodzą;
-- [ ] pytest, ruff i type checker przechodzą;
-- [ ] brak sekretów i niezamierzonych publicznych eksportów;
-- [ ] powiązana dokumentacja i macierz śledzenia są aktualne.
+- [ ] Acceptance criteria pass.
+- [ ] Pytest, Ruff, and the type checker pass.
+- [ ] No secrets or unintended public exports are introduced.
+- [ ] Related docs and traceability are current.
