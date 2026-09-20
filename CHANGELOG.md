@@ -1,9 +1,9 @@
 # Changelog
 
 Notable changes are recorded here. Versions follow PEP 440; `0.1.0a1` is the
-first alpha and has not yet been published to PyPI.
+first alpha.
 
-## 0.1.0a1 — in preparation
+## 0.1.0a1
 
 ### Added
 
@@ -27,4 +27,4 @@ first alpha and has not yet been published to PyPI.
   model and its chat template.
 
 See the [alpha release notes](docs/release-notes-alpha.md) for verification
-status and remaining release work.
+details and limitations.
