@@ -1,0 +1,23 @@
+providers:
+  local:
+    type: openai_compatible
+    base_url: http://127.0.0.1:8080/v1
+
+  router:
+    type: openrouter
+    api_key: ${OPENROUTER_API_KEY}
+
+models:
+  local_chat:
+    provider: local
+    model: local-model
+
+tool_modules: [examples.custom_tools]
+
+runtime:
+  workspace_root: .
+  allow_paths_outside_workspace: false
+
+logging:
+  level: INFO
+  trace_dir: .moiryx/runs

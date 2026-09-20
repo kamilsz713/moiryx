@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.venv/
+build/
+dist/
+scratch/
+.moiryx/
+.venv-*/
+/.env
+/.env.*
+/moiryx.yaml
