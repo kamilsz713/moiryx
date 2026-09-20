@@ -6,10 +6,10 @@ import asyncio
 import os
 import signal
 import subprocess
-from collections.abc import Callable
+import sys
 from contextlib import suppress
 from functools import partial
-from typing import Annotated, Any, cast
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
@@ -39,7 +39,7 @@ def _bounded_output(content: str, *, max_chars: int) -> str:
 
 
 async def _kill_process_tree(process: asyncio.subprocess.Process) -> None:
-    if os.name == "nt":
+    if sys.platform == "win32":
         if process.returncode is None:
             with suppress(ProcessLookupError):
                 process.send_signal(signal.CTRL_BREAK_EVENT)
@@ -66,12 +66,7 @@ async def _kill_process_tree(process: asyncio.subprocess.Process) -> None:
             process.kill()
     else:
         with suppress(ProcessLookupError):
-            kill_process_group = cast(
-                Callable[[int, int], None],
-                getattr(os, "kill" + "pg"),
-            )
-            kill_signal = int(getattr(signal, "SIG" + "KILL", signal.SIGTERM))
-            kill_process_group(process.pid, kill_signal)
+            os.killpg(process.pid, signal.SIGKILL)
     with suppress(ProcessLookupError):
         await process.communicate()
 
@@ -88,7 +83,7 @@ async def _shell(
         raise BuiltinToolError("Configured workspace root is not a directory")
     timeout = default_timeout if timeout_seconds is None else float(timeout_seconds)
     process_options: dict[str, Any] = {}
-    if os.name == "nt":
+    if sys.platform == "win32":
         process_options["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
     else:
         process_options["start_new_session"] = True
