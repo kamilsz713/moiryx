@@ -1,7 +1,8 @@
-# 0.1.0a1 — pre-publication status
+# 0.1.0a1 — alpha release notes
 
-Moiryx has not been published to PyPI. These notes record the first alpha's
-verification and remaining release work, not a publication announcement.
+These notes record the first alpha's verification and limitations. The
+published package, when available, is at
+<https://pypi.org/project/moiryx/0.1.0a1/>.
 
 ## Verified
 
@@ -14,14 +15,6 @@ verification and remaining release work, not a publication announcement.
   and OpenRouter (`inclusionai/ling-3.0-flash-vl:free`). Local function-calling
   and JSON-schema examples were also exercised. Live-test configuration stays
   private and is not part of the repository.
-
-## Remaining
-
-- Create the GitHub `pypi` environment with a required reviewer and configure
-  the matching pending PyPI Trusted Publisher. The `moiryx` project page is
-  currently absent, but the name is not reserved until the first publication.
-- Publish the `v0.1.0a1` GitHub pre-release, approve the environment, and verify
-  the uploaded distributions and clean installation from PyPI.
 
 `shell` is not a sandbox. Local function-calling and JSON-schema behavior
 depends on the model and chat template; one successful smoke test is not a

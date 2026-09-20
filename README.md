@@ -9,13 +9,25 @@ This project is an alpha. Its deliberately small user-facing API consists of
 
 ## Installation
 
-Version `0.1.0a1` has not been published to PyPI. Install from this checkout:
+Install the alpha from PyPI once it is available:
+
+```bash
+python -m pip install moiryx==0.1.0a1
+```
+
+For development from this checkout:
 
 ```bash
 python -m pip install -e .
 ```
 
-Vertex AI requires the optional Google Gen AI SDK:
+Vertex AI requires the optional Google Gen AI SDK. For a PyPI installation:
+
+```bash
+python -m pip install "moiryx[google]==0.1.0a1"
+```
+
+From this checkout:
 
 ```bash
 python -m pip install -e ".[google]"
