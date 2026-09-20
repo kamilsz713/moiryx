@@ -26,5 +26,5 @@ first alpha.
 - Function calling and JSON-schema behavior of local models depend on the
   model and its chat template.
 
-See the [alpha release notes](docs/release-notes-alpha.md) for verification
-details and limitations.
+See the [v0.1.0a1 release](https://github.com/kamilsz713/moiryx/releases/tag/v0.1.0a1)
+for the public announcement.

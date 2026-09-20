@@ -104,6 +104,20 @@ def test_sdist_manifest_includes_docs_and_examples() -> None:
     assert "recursive-include examples *.md *.py *.yaml" in manifest
 
 
+def test_user_guides_parse_and_index_links_resolve() -> None:
+    docs = PROJECT_ROOT / "docs"
+    for name in ("usage.md", "providers.md"):
+        text = (docs / name).read_text("utf-8")
+        for source in _blocks(text, "yaml"):
+            assert isinstance(yaml.safe_load(source), dict)
+    for path in (PROJECT_ROOT / "README.md", *docs.glob("*.md")):
+        text = path.read_text("utf-8")
+        for target in re.findall(r"\]\(([^)]+)\)", text):
+            if target.startswith(("#", "https://")):
+                continue
+            assert (path.parent / target.split("#", 1)[0]).exists(), (path, target)
+
+
 def test_publish_workflow_uses_release_tag_and_trusted_publisher() -> None:
     workflow_path = PROJECT_ROOT / ".github" / "workflows" / "publish.yml"
     workflow = yaml.safe_load(workflow_path.read_text("utf-8"))

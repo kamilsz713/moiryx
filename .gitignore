@@ -10,6 +10,12 @@ dist/
 scratch/
 .moiryx/
 .venv-*/
-/.env
-/.env.*
-/moiryx.yaml
+.env
+.env.*
+.pypirc
+*.pem
+*.key
+*credentials*.json
+*service-account*.json
+moiryx.yaml
+!examples/moiryx.yaml

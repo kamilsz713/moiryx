@@ -9,7 +9,7 @@ This project is an alpha. Its deliberately small user-facing API consists of
 
 ## Installation
 
-Install the alpha from PyPI once it is available:
+Install the alpha from PyPI:
 
 ```bash
 python -m pip install moiryx==0.1.0a1
@@ -168,7 +168,7 @@ providers:
 models:
   local_chat:
     provider: router
-    model: anthropic/claude-sonnet-4.5
+    model: provider/model-id
 ```
 
 Supported provider types are `openai_compatible` (including llama-server,
@@ -189,20 +189,8 @@ Each run has its own ID and, when tracing is enabled, an
 default. If enabled, configured secrets and sensitive fields are still
 redacted.
 
-## Examples and development
+## Examples
 
-See [`examples/`](examples/) for runnable definitions and [`docs/`](docs/) for
-architecture, limitations, release notes, and the issue backlog.
-
-Run the local quality checks:
-
-```bash
-python scripts/check.py
-python -m pytest -m acceptance -q
-python -m build
-python scripts/audit_artifacts.py dist
-```
-
-Acceptance tests use deterministic fake providers; they need no network or
-credentials. The live local-endpoint test is opt-in through
-`MOIRYX_OPENAI_COMPATIBLE_LIVE_URL` and `MOIRYX_OPENAI_COMPATIBLE_LIVE_MODEL`.
+See [`examples/`](examples/) for runnable definitions, the
+[usage guide](docs/usage.md) for configuration and tools, and the
+[provider guide](docs/providers.md) for connection examples.
