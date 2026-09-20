@@ -112,6 +112,7 @@ def test_publish_workflow_uses_release_tag_and_trusted_publisher() -> None:
     assert workflow["permissions"] == {"contents": "read"}
     build = workflow["jobs"]["build"]
     publish = workflow["jobs"]["publish"]
+    assert build["steps"][0]["with"]["persist-credentials"] is False
     assert any(
         step.get("run") == "python scripts/check_release_tag.py"
         for step in build["steps"]
