@@ -4,15 +4,16 @@ Moiryx lets you define an agent in Markdown, select its model in YAML, and call
 it like an async Python object. You can move the same agent from a local
 `llama-server` to OpenRouter, Azure, or Vertex AI without changing Python code.
 
-This project is an alpha. Its deliberately small user-facing API consists of
-`Agent`, `@tool`, and `moiryx.yaml`.
+This project is an alpha. Its primary user-facing API consists of `Agent`,
+`@tool`, `moiryx.yaml`, and the optional typed runtime events in
+`moiryx.events`.
 
 ## Installation
 
 Install the alpha from PyPI:
 
 ```bash
-python -m pip install moiryx==0.1.0a1
+python -m pip install moiryx==0.1.0a2
 ```
 
 For development from this checkout:
@@ -24,7 +25,7 @@ python -m pip install -e .
 Vertex AI requires the optional Google Gen AI SDK. For a PyPI installation:
 
 ```bash
-python -m pip install "moiryx[google]==0.1.0a1"
+python -m pip install "moiryx[google]==0.1.0a2"
 ```
 
 From this checkout:
@@ -188,6 +189,39 @@ Each run has its own ID and, when tracing is enabled, an
 `.moiryx/runs/<run-id>/events.jsonl` file. Raw provider responses are off by
 default. If enabled, configured secrets and sensitive fields are still
 redacted.
+
+## Runtime events and conversation history
+
+Agent calls accept an explicit normalized history and an optional event sink:
+
+```python
+from moiryx.messages import AssistantMessage, UserMessage
+
+
+async def continue_conversation():
+    async def show(event):
+        print(event.kind)
+
+    return await agent(
+        "Continue",
+        history=[UserMessage("Question"), AssistantMessage("Earlier answer")],
+        event_sink=show,
+    )
+```
+
+For direct iteration, use `agent.stream(...)`:
+
+```python
+async def stream_events():
+    async for event in agent.stream("Continue"):
+        print(event.kind)
+```
+
+The stream emits typed agent, tool, usage, warning, and terminal lifecycle
+events while preserving the normal exception behavior. Provider token deltas
+are not yet available; the current stream is semantic and reports progress
+around model and tool work. Applications can bind an ambient sink with
+`moiryx.events.event_sink` when nested calls should share one event consumer.
 
 ## Examples
 

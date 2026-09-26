@@ -138,6 +138,6 @@ def test_publish_workflow_uses_release_tag_and_trusted_publisher() -> None:
 
 
 def test_release_tag_must_match_package_version() -> None:
-    check_release_tag("v0.1.0a1")
-    with pytest.raises(ValueError, match=r"must be 'v0\.1\.0a1'"):
+    check_release_tag("v0.1.0a2")
+    with pytest.raises(ValueError, match=r"must be 'v0\.1\.0a2'"):
         check_release_tag("v0.1.0")

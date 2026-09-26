@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import AsyncIterator, Sequence
+from contextlib import suppress
 from dataclasses import dataclass
 from importlib import import_module
 from pathlib import Path
@@ -11,7 +14,10 @@ from pydantic import BaseModel
 from moiryx.agent_spec import AgentSpec, load_agent_spec
 from moiryx.config import CapabilityOverrides, RuntimeConfig, load_config
 from moiryx.errors import ConfigurationError, ProviderCapabilityError
+from moiryx.events import EventSink, RuntimeEvent
+from moiryx.events import event_sink as bind_event_sink
 from moiryx.generation import merge_generation_options
+from moiryx.messages import Message
 from moiryx.model_registry import ModelRegistry, ResolvedModel
 from moiryx.models import GenerationOptions, ProviderCapabilities, ToolDefinition
 from moiryx.observability import RunObserver
@@ -161,30 +167,80 @@ class Agent:
             ),
         )
 
-    async def __call__(self, prompt: str) -> str | BaseModel:
+    async def __call__(
+        self,
+        prompt: str,
+        *,
+        history: Sequence[Message] = (),
+        event_sink: EventSink | None = None,
+    ) -> str | BaseModel:
         """Execute one isolated run of this eagerly prepared agent."""
-        if self._prepared.spec.output_model is not None:
-            return await execute_structured_agent(
+
+        async def execute() -> str | BaseModel:
+            if self._prepared.spec.output_model is not None:
+                return await execute_structured_agent(
+                    provider=self._prepared.provider,
+                    spec=self._prepared.spec,
+                    model=self._prepared.model,
+                    tools=self._prepared.tools,
+                    capabilities=self._prepared.capabilities,
+                    generation=self._prepared.generation,
+                    runtime=self._prepared.runtime,
+                    prompt=prompt,
+                    history=history,
+                    observer=self._prepared.observer,
+                )
+            return await execute_text_agent(
                 provider=self._prepared.provider,
                 spec=self._prepared.spec,
                 model=self._prepared.model,
                 tools=self._prepared.tools,
-                capabilities=self._prepared.capabilities,
                 generation=self._prepared.generation,
                 runtime=self._prepared.runtime,
                 prompt=prompt,
+                history=history,
                 observer=self._prepared.observer,
             )
-        return await execute_text_agent(
-            provider=self._prepared.provider,
-            spec=self._prepared.spec,
-            model=self._prepared.model,
-            tools=self._prepared.tools,
-            generation=self._prepared.generation,
-            runtime=self._prepared.runtime,
-            prompt=prompt,
-            observer=self._prepared.observer,
-        )
+
+        if event_sink is None:
+            return await execute()
+        with bind_event_sink(event_sink):
+            return await execute()
+
+    async def stream(
+        self,
+        prompt: str,
+        *,
+        history: Sequence[Message] = (),
+    ) -> AsyncIterator[RuntimeEvent]:
+        """Yield lifecycle events for one run, including its final agent event."""
+        queue: asyncio.Queue[RuntimeEvent | BaseException | None] = asyncio.Queue()
+
+        async def enqueue_event(event: RuntimeEvent) -> None:
+            await queue.put(event)
+
+        async def run() -> None:
+            try:
+                await self(prompt, history=history, event_sink=enqueue_event)
+            except BaseException as error:
+                await queue.put(error)
+            finally:
+                await queue.put(None)
+
+        task = asyncio.create_task(run())
+        try:
+            while True:
+                item = await queue.get()
+                if item is None:
+                    break
+                if isinstance(item, BaseException):
+                    raise item
+                yield item
+        finally:
+            if not task.done():
+                task.cancel()
+            with suppress(asyncio.CancelledError, Exception):
+                await task
 
     async def aclose(self) -> None:
         """Release the provider client when this agent is no longer needed."""

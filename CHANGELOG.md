@@ -3,6 +3,19 @@
 Notable changes are recorded here. Versions follow PEP 440; `0.1.0a1` is the
 first alpha.
 
+## 0.1.0a2
+
+### Added
+
+- Typed runtime events with ambient event sinks and nested run correlation.
+- `Agent.stream(...)`, explicit conversation history, and async retry callbacks.
+- A strict `extensions` namespace for applications such as `moiryx-code`.
+
+### Changed
+
+- Tool execution now exposes start and finish events without changing the
+  existing `await agent(prompt)` result contract.
+
 ## 0.1.0a1
 
 ### Added

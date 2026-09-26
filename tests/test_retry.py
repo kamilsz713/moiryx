@@ -88,6 +88,41 @@ async def test_transient_errors_use_exponential_backoff_with_jitter() -> None:
 
 
 @pytest.mark.asyncio
+async def test_retry_callback_may_be_async() -> None:
+    callbacks: list[tuple[int, float, type[Exception]]] = []
+
+    async def no_sleep(delay: float) -> None:
+        assert delay == 1
+
+    async def record_retry(attempt: int, delay: float, error: Exception) -> None:
+        callbacks.append((attempt, delay, type(error)))
+
+    provider = ScriptedFakeProvider(
+        [TimeoutError("timeout"), ModelResponse(content="done")]
+    )
+    retry = ProviderRetry(
+        1,
+        base_delay=1,
+        jitter_ratio=0,
+        sleep=no_sleep,
+    )
+
+    response = await retry.complete(
+        provider,
+        _request(),
+        agent_name="reviewer",
+        model_alias="strong",
+        provider_name="local",
+        model_id="vendor/model",
+        run_id="run-1",
+        on_retry=record_retry,
+    )
+
+    assert response.content == "done"
+    assert callbacks == [(1, 1, TimeoutError)]
+
+
+@pytest.mark.asyncio
 async def test_non_retryable_error_fails_immediately_with_runtime_context() -> None:
     delays: list[float] = []
 

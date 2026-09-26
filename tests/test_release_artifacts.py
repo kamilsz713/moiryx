@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from scripts.audit_artifacts import audit_archive
 
-VERSION = "0.1.0a1"
+VERSION = "0.1.0a2"
 METADATA = f"Name: moiryx\nVersion: {VERSION}\nLicense-Expression: MIT\n".encode()
 
 

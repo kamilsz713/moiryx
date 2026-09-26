@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Iterable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass
 from difflib import get_close_matches
 from typing import Literal
@@ -427,12 +427,16 @@ async def execute_prepared_batch(
     executor: ToolExecutor,
     *,
     max_output_chars: int = 50_000,
+    on_start: Callable[[PreparedToolCall], Awaitable[None]] | None = None,
+    on_finish: Callable[[PreparedToolCall, ToolMessage], Awaitable[None]] | None = None,
 ) -> tuple[ToolMessage, ...]:
     """Execute a successful preflight sequentially and serialize each result."""
     if not result.is_valid:
         raise ValueError("cannot execute a batch with preflight issues")
     messages: list[ToolMessage] = []
     for call in result.calls:
+        if on_start is not None:
+            await on_start(call)
         try:
             value = await executor.execute_validated(call.definition, call.arguments)
             message = build_tool_message(
@@ -449,6 +453,8 @@ async def execute_prepared_batch(
                 content=f"{type(error).__name__}: {error.message}",
                 is_error=True,
             )
+        if on_finish is not None:
+            await on_finish(call, message)
         messages.append(message)
     return tuple(messages)
 

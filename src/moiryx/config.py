@@ -198,6 +198,7 @@ class MoiryxConfig(_ConfigModel):
     tool_modules: list[str] = Field(default_factory=list)
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    extensions: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _validate_model_provider_references(self) -> Self:

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Sequence
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from time import monotonic
 from typing import Literal, TypeAlias, TypeVar
 from uuid import uuid4
 
@@ -18,6 +21,17 @@ from moiryx.errors import (
     MaxStepsExceeded,
     ProviderCapabilityError,
     ToolCallRepairError,
+)
+from moiryx.events import (
+    AgentFinished,
+    AgentStarted,
+    ToolFinished,
+    ToolStarted,
+    UsageEvent,
+    Warning,
+    current_run_id,
+    emit_event,
+    run_scope,
 )
 from moiryx.messages import (
     AssistantMessage,
@@ -40,6 +54,7 @@ from moiryx.providers import ProviderAdapter
 from moiryx.retry import ProviderRetry
 from moiryx.tools import (
     FINAL_TOOL_NAME,
+    PreparedToolCall,
     ToolExecutor,
     ToolRepairTracker,
     execute_prepared_batch,
@@ -47,7 +62,7 @@ from moiryx.tools import (
 )
 
 StructuredOutputMode: TypeAlias = Literal["synthetic_tool", "native_schema"]
-_ResultT = TypeVar("_ResultT")
+_ResultT = TypeVar("_ResultT", bound=str | BaseModel)
 
 _SYNTHETIC_PROTOCOL_SUFFIX = (
     "When the task is complete, return the final answer by calling "
@@ -66,6 +81,7 @@ class RunContext:
 
     run_id: str
     messages: list[Message]
+    parent_run_id: str | None = None
     started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     ended_at: datetime | None = None
     step: int = 0
@@ -90,40 +106,77 @@ async def _observe_run(
     result_type: str,
 ) -> _ResultT:
     fields = _run_fields(spec, model)
-    observer.emit(
-        "run_started",
-        run_id=context.run_id,
-        level=logging.INFO,
-        started_at=context.started_at,
-        **fields,
-    )
-    try:
-        result = await operation()
-    except BaseException as error:
-        context.ended_at = datetime.now(UTC)
+    with run_scope(context.run_id):
         observer.emit(
-            "run_failed",
+            "run_started",
             run_id=context.run_id,
-            level=logging.ERROR,
-            ended_at=context.ended_at,
-            duration_ms=(context.ended_at - context.started_at).total_seconds() * 1000,
-            steps=context.step,
-            error_type=type(error).__name__,
+            level=logging.INFO,
+            started_at=context.started_at,
             **fields,
         )
-        raise
-    context.ended_at = datetime.now(UTC)
-    observer.emit(
-        "run_completed",
-        run_id=context.run_id,
-        level=logging.INFO,
-        ended_at=context.ended_at,
-        duration_ms=(context.ended_at - context.started_at).total_seconds() * 1000,
-        steps=context.step,
-        result_type=result_type,
-        **fields,
-    )
-    return result
+        await emit_event(
+            AgentStarted(
+                run_id=context.run_id,
+                parent_run_id=context.parent_run_id,
+                name=spec.name,
+                model_alias=model.alias,
+                model_id=model.model,
+                provider=model.provider,
+            )
+        )
+        try:
+            result = await operation()
+        except BaseException as error:
+            context.ended_at = datetime.now(UTC)
+            duration_ms = (context.ended_at - context.started_at).total_seconds() * 1000
+            observer.emit(
+                "run_failed",
+                run_id=context.run_id,
+                level=logging.ERROR,
+                ended_at=context.ended_at,
+                duration_ms=duration_ms,
+                steps=context.step,
+                error_type=type(error).__name__,
+                **fields,
+            )
+            await emit_event(
+                AgentFinished(
+                    run_id=context.run_id,
+                    parent_run_id=context.parent_run_id,
+                    name=spec.name,
+                    status=(
+                        "cancelled"
+                        if isinstance(error, asyncio.CancelledError)
+                        else "failed"
+                    ),
+                    duration_ms=duration_ms,
+                    error_type=type(error).__name__,
+                )
+            )
+            raise
+        context.ended_at = datetime.now(UTC)
+        duration_ms = (context.ended_at - context.started_at).total_seconds() * 1000
+        observer.emit(
+            "run_completed",
+            run_id=context.run_id,
+            level=logging.INFO,
+            ended_at=context.ended_at,
+            duration_ms=duration_ms,
+            steps=context.step,
+            result_type=result_type,
+            **fields,
+        )
+        await emit_event(
+            AgentFinished(
+                run_id=context.run_id,
+                parent_run_id=context.parent_run_id,
+                name=spec.name,
+                status="completed",
+                duration_ms=duration_ms,
+                result=result,
+            )
+        )
+        return result
 
 
 def _emit_model_requested(
@@ -143,7 +196,7 @@ def _emit_model_requested(
     )
 
 
-def _emit_model_responded(
+async def _emit_model_responded(
     observer: RunObserver,
     context: RunContext,
     response: ModelResponse,
@@ -168,9 +221,20 @@ def _emit_model_responded(
         level=logging.DEBUG,
         **fields,
     )
+    if response.usage is not None:
+        await emit_event(
+            UsageEvent(
+                run_id=context.run_id,
+                parent_run_id=context.parent_run_id,
+                input_tokens=response.usage.input_tokens,
+                output_tokens=response.usage.output_tokens,
+                total_tokens=response.usage.total_tokens,
+                cost=response.usage.cost,
+            )
+        )
 
 
-def _emit_provider_retry(
+async def _emit_provider_retry(
     observer: RunObserver,
     context: RunContext,
     attempt: int,
@@ -185,6 +249,16 @@ def _emit_provider_retry(
         attempt=attempt,
         delay_seconds=delay,
         error_type=type(error).__name__,
+    )
+    await emit_event(
+        Warning(
+            run_id=context.run_id,
+            parent_run_id=context.parent_run_id,
+            code="provider_retry",
+            message=(
+                f"Provider retry {attempt} in {delay:g}s after {type(error).__name__}"
+            ),
+        )
     )
 
 
@@ -221,7 +295,7 @@ def _emit_tool_results(
         )
 
 
-def _emit_repair(
+async def _emit_repair(
     observer: RunObserver,
     context: RunContext,
     event: str,
@@ -235,6 +309,51 @@ def _emit_repair(
         step=context.step,
         call_count=calls,
     )
+    await emit_event(
+        Warning(
+            run_id=context.run_id,
+            parent_run_id=context.parent_run_id,
+            code=event,
+            message=f"{event.replace('_', ' ')} ({calls} call(s))",
+        )
+    )
+
+
+def _tool_event_callbacks(
+    context: RunContext,
+) -> tuple[
+    Callable[[PreparedToolCall], Awaitable[None]],
+    Callable[[PreparedToolCall, ToolMessage], Awaitable[None]],
+]:
+    started: dict[str, float] = {}
+
+    async def on_start(call: PreparedToolCall) -> None:
+        started[call.id] = monotonic()
+        await emit_event(
+            ToolStarted(
+                run_id=context.run_id,
+                parent_run_id=context.parent_run_id,
+                tool_call_id=call.id,
+                tool=call.name,
+                arguments=call.arguments.model_dump(mode="json"),
+            )
+        )
+
+    async def on_finish(call: PreparedToolCall, message: ToolMessage) -> None:
+        started_at = started.pop(call.id)
+        await emit_event(
+            ToolFinished(
+                run_id=context.run_id,
+                parent_run_id=context.parent_run_id,
+                tool_call_id=call.id,
+                tool=call.name,
+                output=message.content,
+                is_error=message.is_error,
+                duration_ms=(monotonic() - started_at) * 1000,
+            )
+        )
+
+    return on_start, on_finish
 
 
 async def _execute_text_agent(
@@ -292,7 +411,7 @@ async def _execute_text_agent(
                 error,
             ),
         )
-        _emit_model_responded(observer, context, response)
+        await _emit_model_responded(observer, context, response)
         _emit_tool_requests(observer, context, response)
 
         if response.tool_calls:
@@ -304,7 +423,7 @@ async def _execute_text_agent(
             )
             preflight = preflight_tool_calls(response.tool_calls, tools)
             if not preflight.is_valid:
-                _emit_repair(
+                await _emit_repair(
                     observer,
                     context,
                     "tool_call_repair_started",
@@ -313,7 +432,7 @@ async def _execute_text_agent(
                 try:
                     feedback = repair_tracker.feedback_for(preflight)
                 except ToolCallRepairError:
-                    _emit_repair(
+                    await _emit_repair(
                         observer,
                         context,
                         "tool_call_repair_failed",
@@ -324,7 +443,7 @@ async def _execute_text_agent(
                 repair_pending = True
                 continue
             if repair_pending:
-                _emit_repair(
+                await _emit_repair(
                     observer,
                     context,
                     "tool_call_repaired",
@@ -332,10 +451,13 @@ async def _execute_text_agent(
                 )
                 repair_pending = False
 
+            on_tool_start, on_tool_finish = _tool_event_callbacks(context)
             tool_messages = await execute_prepared_batch(
                 preflight,
                 executor,
                 max_output_chars=runtime.max_tool_output_chars,
+                on_start=on_tool_start,
+                on_finish=on_tool_finish,
             )
             context.messages.extend(tool_messages)
             _emit_tool_results(observer, context, tool_messages)
@@ -351,7 +473,7 @@ async def _execute_text_agent(
                 run_id=context.run_id,
             )
         if repair_pending:
-            _emit_repair(
+            await _emit_repair(
                 observer,
                 context,
                 "tool_call_repaired",
@@ -379,6 +501,7 @@ async def execute_text_agent(
     generation: GenerationOptions,
     runtime: RuntimeConfig,
     prompt: str,
+    history: Sequence[Message] = (),
     provider_retry: ProviderRetry | None = None,
     observer: RunObserver | None = None,
 ) -> str:
@@ -387,7 +510,12 @@ async def execute_text_agent(
         raise ValueError("text runtime cannot execute a structured agent")
     context = RunContext(
         run_id=uuid4().hex,
-        messages=[SystemMessage(spec.instructions), UserMessage(prompt)],
+        parent_run_id=current_run_id(),
+        messages=[
+            SystemMessage(spec.instructions),
+            *deepcopy(list(history)),
+            UserMessage(prompt),
+        ],
     )
     active_observer = observer or RunObserver()
     return await _observe_run(
@@ -521,7 +649,7 @@ async def _execute_structured_agent(
                 error,
             ),
         )
-        _emit_model_responded(observer, context, response)
+        await _emit_model_responded(observer, context, response)
         _emit_tool_requests(observer, context, response)
         context.messages.append(
             AssistantMessage(
@@ -608,7 +736,7 @@ async def _execute_structured_agent(
         if response.tool_calls:
             preflight = preflight_tool_calls(response.tool_calls, tools)
             if not preflight.is_valid:
-                _emit_repair(
+                await _emit_repair(
                     observer,
                     context,
                     "tool_call_repair_started",
@@ -617,7 +745,7 @@ async def _execute_structured_agent(
                 try:
                     feedback = tool_repair_tracker.feedback_for(preflight)
                 except ToolCallRepairError:
-                    _emit_repair(
+                    await _emit_repair(
                         observer,
                         context,
                         "tool_call_repair_failed",
@@ -628,17 +756,20 @@ async def _execute_structured_agent(
                 repair_pending = True
                 continue
             if repair_pending:
-                _emit_repair(
+                await _emit_repair(
                     observer,
                     context,
                     "tool_call_repaired",
                     calls=len(response.tool_calls),
                 )
                 repair_pending = False
+            on_tool_start, on_tool_finish = _tool_event_callbacks(context)
             tool_messages = await execute_prepared_batch(
                 preflight,
                 executor,
                 max_output_chars=runtime.max_tool_output_chars,
+                on_start=on_tool_start,
+                on_finish=on_tool_finish,
             )
             context.messages.extend(tool_messages)
             _emit_tool_results(observer, context, tool_messages)
@@ -672,6 +803,7 @@ async def execute_structured_agent(
     generation: GenerationOptions,
     runtime: RuntimeConfig,
     prompt: str,
+    history: Sequence[Message] = (),
     provider_retry: ProviderRetry | None = None,
     observer: RunObserver | None = None,
 ) -> BaseModel:
@@ -692,8 +824,10 @@ async def execute_structured_agent(
     )
     context = RunContext(
         run_id=uuid4().hex,
+        parent_run_id=current_run_id(),
         messages=[
             SystemMessage(f"{spec.instructions}\n\n{protocol_suffix}"),
+            *deepcopy(list(history)),
             UserMessage(prompt),
         ],
     )

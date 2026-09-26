@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import math
 import random
 from collections.abc import Awaitable, Callable
@@ -13,7 +14,7 @@ from moiryx.providers import ProviderAdapter
 
 SleepFunction = Callable[[float], Awaitable[None]]
 RandomFunction = Callable[[], float]
-RetryCallback = Callable[[int, float, Exception], None]
+RetryCallback = Callable[[int, float, Exception], Awaitable[None] | None]
 
 
 def is_retryable_provider_error(error: Exception) -> bool:
@@ -136,7 +137,9 @@ class ProviderRetry:
                 delay = self.delay_for(retries_used)
                 retries_used += 1
                 if on_retry is not None:
-                    on_retry(retries_used, delay, error)
+                    callback_result = on_retry(retries_used, delay, error)
+                    if inspect.isawaitable(callback_result):
+                        await callback_result
                 await self._sleep(delay)
 
 

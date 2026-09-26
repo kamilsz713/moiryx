@@ -143,6 +143,16 @@ def test_runtime_defaults_and_provider_types_are_validated() -> None:
     assert config.logging.include_raw_response is False
 
 
+def test_extensions_are_isolated_without_weakening_strict_root_validation() -> None:
+    config = MoiryxConfig.model_validate(
+        {"extensions": {"code": {"handler": "example:run", "enabled": True}}}
+    )
+
+    assert config.extensions == {"code": {"handler": "example:run", "enabled": True}}
+    with pytest.raises(ValueError):
+        MoiryxConfig.model_validate({"code": {"handler": "example:run"}})
+
+
 @pytest.mark.parametrize(
     "payload",
     (
